@@ -5,6 +5,7 @@ import { ChatSession, ChatMessage, CHAT_APP_SETTINGS_UPDATED_EVENT, CHAT_INITIAL
 import type { StateValue } from "@/lib/chat-storage";
 import { parseStateValues, mergeStateValues } from "@/lib/state-value-parser";
 import { parseAIResponse, type ParsedMessagePart } from "@/lib/rich-message-parser";
+import { stripVoiceTagsForDisplay } from "@/lib/strip-voice-tags";
 import { isKnownStickerLabel } from "@/lib/sticker-data";
 import { translateReasoningText } from "@/lib/reasoning-translate";
 import { MessageBubble, MediaDetailModal, prewarmStickerCache, BilingualTextBlock, isStandaloneHtmlPreviewContent, normalizeTextBubbleContent } from "./message-bubble";
@@ -5790,7 +5791,7 @@ export function ChatRoom({ session, onBack }: ChatRoomProps) {
                                     {msg.role !== "user" && <div className="w-[40px] shrink-0" />}
                                     <div className="voice-msg-text-bubble">
                                         <BilingualTextBlock
-                                            text={msg.displayProjected ? (renderMsg.mediaData?.label || "") : renderDisplayText(renderMsg.mediaData?.label || "", msg.role === "user" ? 1 : 2, false)}
+                                            text={msg.displayProjected ? stripVoiceTagsForDisplay(renderMsg.mediaData?.label || "") : renderDisplayText(stripVoiceTagsForDisplay(renderMsg.mediaData?.label || ""), msg.role === "user" ? 1 : 2, false)}
                                             mode="markdown"
                                             defaultExpanded={session.collapseBilingualTranslation !== false ? false : true}
                                         />

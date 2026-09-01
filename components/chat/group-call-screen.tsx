@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { ChatSession, ChatMessage, loadChatMessages, pushChatMessage, getLatestCharacterStateValues } from "@/lib/chat-storage";
 import { generateGroupChatCompletion } from "@/lib/group-chat-engine";
 import { parseAIResponse } from "@/lib/rich-message-parser";
+import { stripVoiceTagsForDisplay } from "@/lib/strip-voice-tags";
 import { resolveUserIdentity } from "@/lib/settings-storage";
 import { cancelFollowUp } from "@/lib/follow-up-service";
 import { createSTTSession, type STTSession } from "@/lib/stt-service";
@@ -724,7 +725,7 @@ export function GroupCallScreen({ type, session, characters, onEnd, initiator = 
                             data-role={sub.role}
                         >
                             {sub.senderName && <div className="call-subtitle-sender">{sub.senderName}</div>}
-                            <BilingualTextBlock text={sub.text} mode="plain" className="call-subtitle-bilingual" defaultExpanded={session.collapseBilingualTranslation !== false ? false : true} />
+                            <BilingualTextBlock text={stripVoiceTagsForDisplay(sub.text)} mode="plain" className="call-subtitle-bilingual" defaultExpanded={session.collapseBilingualTranslation !== false ? false : true} />
                         </div>
                     ))}
                     {interimText && callState === "USER_SPEAKING" && (
@@ -818,7 +819,7 @@ export function GroupCallScreen({ type, session, characters, onEnd, initiator = 
                     {subtitles.map((sub) => (
                         <div key={sub.id} className="gcall-subtitle-bubble" data-role={sub.role}>
                             {sub.senderName && <div className="gcall-subtitle-sender">{sub.senderName}</div>}
-                            <BilingualTextBlock text={sub.text} mode="plain" className="call-subtitle-bilingual" defaultExpanded={session.collapseBilingualTranslation !== false ? false : true} />
+                            <BilingualTextBlock text={stripVoiceTagsForDisplay(sub.text)} mode="plain" className="call-subtitle-bilingual" defaultExpanded={session.collapseBilingualTranslation !== false ? false : true} />
                         </div>
                     ))}
                     {interimText && callState === "USER_SPEAKING" && (
