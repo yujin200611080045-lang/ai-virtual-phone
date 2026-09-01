@@ -5,6 +5,7 @@ import { ChatSession, ChatMessage, loadChatMessages, pushChatMessage, getLatestC
 import type { StateValue } from "@/lib/chat-storage";
 import { parseStateValues, mergeStateValues } from "@/lib/state-value-parser";
 import { parseAIResponse } from "@/lib/rich-message-parser";
+import { stripVoiceTagsForDisplay } from "@/lib/strip-voice-tags";
 import { generateChatCompletion, flattenCompletionResult, ChatEngineError } from "@/lib/chat-engine";
 import { resolveUserIdentity } from "@/lib/settings-storage";
 import { cancelFollowUp } from "@/lib/follow-up-service";
@@ -662,7 +663,7 @@ export function VoiceCallScreen({ session, character, onEnd, onConnect, initiato
                             className="call-subtitle"
                             data-role={sub.role}
                         >
-                            <BilingualTextBlock text={sub.text} mode="plain" className="call-subtitle-bilingual" defaultExpanded={session.collapseBilingualTranslation !== false ? false : true} />
+                            <BilingualTextBlock text={stripVoiceTagsForDisplay(sub.text)} mode="plain" className="call-subtitle-bilingual" defaultExpanded={session.collapseBilingualTranslation !== false ? false : true} />
                         </div>
                     ))}
 
