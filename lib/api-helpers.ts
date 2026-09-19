@@ -133,12 +133,15 @@ export async function simpleLLMCall(
             fetchUrl = `${baseUrl.replace(/\/$/, "")}/models/${config.defaultModel}:generateContent?key=${config.apiKey}`;
             // Remove Authorization header for Gemini (uses URL key)
             delete headers["Authorization"];
-            const parts = messages.map(m => ({
+            const systemMsg = messages.find(m => m.role === "system");
+            const nonSystemMessages = messages.filter(m => m.role !== "system");
+            const parts = nonSystemMessages.map(m => ({
                 role: m.role === "assistant" ? "model" : "user",
                 parts: [{ text: m.content }],
             }));
             body = JSON.stringify({
                 contents: parts,
+                ...(systemMsg ? { systemInstruction: { parts: [{ text: systemMsg.content }] } } : {}),
                 generationConfig: {
                     temperature,
                     ...(max_tokens ? { maxOutputTokens: max_tokens } : {}),
