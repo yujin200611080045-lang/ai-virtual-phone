@@ -951,7 +951,12 @@ export async function sendLLMRequest(
 
         rawOutput = await applyChatPluginLlmResponse(rawOutput, pluginPurpose, options?.debugSessionId);
 
-        if (!rawOutput && parsed.toolCalls.length === 0) {
+        // Strip thinking/reasoning blocks before checking emptiness — a response with only
+        // <think> content and no actual text is still an empty response for the caller.
+        const contentSansThinking = rawOutput
+            ? rawOutput.replace(/<(?:think|thinking)>[\s\S]*?<\/(?:think|thinking)>/gi, "").trim()
+            : "";
+        if (!contentSansThinking && parsed.toolCalls.length === 0) {
             const emptyDetails = emptyResponseDetails(parsed.raw);
             console.warn("[ChatEngine] Empty response from API!", {
                 provider: config.provider,
@@ -1283,9 +1288,10 @@ export async function sendLLMToolRequest(
         }
         rawOutput = await applyChatPluginLlmResponse(rawOutput, pluginPurpose, options?.debugSessionId);
 
-        rawOutput = await applyChatPluginLlmResponse(rawOutput, pluginPurpose, options?.debugSessionId);
-
-        if (!rawOutput && parsed.toolCalls.length === 0) {
+        const contentSansThinkingNative = rawOutput
+            ? rawOutput.replace(/<(?:think|thinking)>[\s\S]*?<\/(?:think|thinking)>/gi, "").trim()
+            : "";
+        if (!contentSansThinkingNative && parsed.toolCalls.length === 0) {
             const emptyDetails = emptyResponseDetails(parsed.raw);
             console.warn("[ChatEngine] Empty native tool response from API!", {
                 provider: config.provider,
