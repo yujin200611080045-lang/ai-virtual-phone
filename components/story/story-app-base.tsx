@@ -37,6 +37,7 @@ function SolidBackIcon({ size = 17 }: { size?: number }) {
 }
 import CSSSchemeBar from "@/components/ui/css-scheme-picker";
 import { Avatar } from "@/components/ui/primitives";
+import { StoryDialLauncher } from "./story-dial-launcher";
 import { StoryHtmlRenderer } from "@/components/ui/story-html-renderer";
 import { loadCharacters } from "@/lib/character-storage";
 import { maybeRunSummarization } from "@/lib/memory-summarizer";
@@ -422,6 +423,14 @@ export function StoryApp({ onClose }: StoryAppProps) {
     setShowLauncher(false);
     setDrawerOpen(false);
   }, [loadThreadInto]);
+
+  const createAndOpenGroup = useCallback((name: string, memberIds: string[], presetId: string) => {
+    const members = Array.from(new Set(memberIds.filter(Boolean)));
+    if (members.length < 2) return;
+    const g = createStoryGroup({ name: name.trim() || "剧情群组", memberIds: members, presetId: presetId || undefined });
+    setStorageVersion((value) => value + 1);
+    openGroup(g.id);
+  }, [openGroup]);
 
   const backToLauncher = useCallback(() => {
     setShowLauncher(true);
@@ -1082,56 +1091,16 @@ export function StoryApp({ onClose }: StoryAppProps) {
             </div>
           </div>
 
-          <div className="story-launcher-body">
-            <section className="story-launcher-section">
-              <div className="story-launcher-eyebrow">
-                <span>剧情群组</span>
-                <button className="story-launcher-new" onClick={() => openGroupModal()}>+ 新建群组</button>
-              </div>
-              {groups.length === 0 ? (
-                <div className="story-launcher-hint">还没有群组。新建一个，把几个角色放进同一场群像剧情。</div>
-              ) : (
-                <div className="story-launcher-groups">
-                  {groups.map((g) => {
-                    const members = g.memberIds.map((id) => characters.find((c) => c.id === id)).filter(Boolean) as typeof characters;
-                    return (
-                      <button key={g.id} className="story-launcher-group" onClick={() => openGroup(g.id)}>
-                        <div className="story-launcher-group-avatars">
-                          {members.slice(0, 4).map((c, i) => (
-                            <div key={c.id} className="story-launcher-ava" style={{ marginLeft: i === 0 ? 0 : -10, zIndex: 10 - i }}>
-                              {c.avatar ? <img src={c.avatar} alt="" /> : <span>{c.name.trim().charAt(0) || "书"}</span>}
-                            </div>
-                          ))}
-                        </div>
-                        <div className="story-launcher-group-body">
-                          <div className="story-launcher-group-name">{g.name}</div>
-                          <div className="story-launcher-group-sub">{members.length} 位角色 · {members.map((c) => c.name).join("、")}</div>
-                        </div>
-                        <span
-                          className="story-launcher-group-edit"
-                          role="button"
-                          tabIndex={0}
-                          onClick={(e) => { e.stopPropagation(); openGroupModal(g.id); }}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); openGroupModal(g.id); } }}
-                        >编辑</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-
-            <section className="story-launcher-section">
-              <div className="story-launcher-eyebrow"><span>单个角色</span></div>
-              <div className="story-launcher-chars">
-                {characters.map((character) => (
-                  <button key={character.id} className="story-launcher-char" onClick={() => openCharacter(character.id)}>
-                    <Avatar src={character.avatar || undefined} name={character.name} size="lg" />
-                    <span className="story-launcher-char-name">{character.name}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
+          <div className="story-launcher-body story-launcher-body-dial">
+            <StoryDialLauncher
+              characters={characters}
+              groups={groups}
+              presets={loadPresets().map((p) => ({ id: p.id, name: p.name }))}
+              onOpenCharacter={openCharacter}
+              onOpenGroup={openGroup}
+              onEditGroup={(id) => openGroupModal(id)}
+              onCreateGroup={createAndOpenGroup}
+            />
           </div>
         </div>
 
