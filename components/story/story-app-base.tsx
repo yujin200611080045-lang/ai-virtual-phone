@@ -1089,56 +1089,43 @@ export function StoryApp({ onClose }: StoryAppProps) {
           <div className="story-stage-inner">
             
             {/* ====== 顶部信息阅读卡片 ====== */}
-            <div className="story-meta">
-              <div className="story-meta-layout">
-                <div className="story-meta-cover">
-                  {isEnsemble ? (
-                    <div className="story-meta-cover-collage" data-count={Math.min(rosterChars.length, 4)} aria-hidden="true">
-                      {rosterChars.slice(0, 4).map((c, i) => {
-                        const overflow = rosterChars.length - 4;
-                        const showOverflow = i === 3 && overflow > 0;
-                        return (
-                          <div key={c.id} className="story-meta-cover-tile">
-                            {c.avatar && !showOverflow ? (
-                              <img src={c.avatar} alt="" />
-                            ) : (
-                              <span className="story-meta-cover-tile-char">
-                                {showOverflow ? `+${overflow + 1}` : (c.name.trim().charAt(0) || "书")}
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })}
+            {isEnsemble ? (
+              /* 群像：极简题头——叠放头像 + 一行小字，不列名字，避免多人名换行 */
+              <div className="story-meta story-meta-ensemble">
+                <div className="story-meta-ava-stack">
+                  {rosterChars.slice(0, 6).map((c, i) => (
+                    <div key={c.id} className="story-meta-ava" style={{ marginLeft: i === 0 ? 0 : -12, zIndex: 10 - i }}>
+                      {c.avatar ? <img src={c.avatar} alt="" /> : <span>{c.name.trim().charAt(0) || "书"}</span>}
                     </div>
-                  ) : currentCharacter.avatar ? (
-                    <img src={currentCharacter.avatar} alt="cover" />
-                  ) : (
-                    <div className="story-meta-cover-fallback" aria-hidden="true">
-                      <span className="story-meta-cover-char">{currentCharacter.name.trim().charAt(0) || "书"}</span>
-                      <span className="story-meta-cover-line" />
-                      <span className="story-meta-cover-sub">STORY</span>
-                    </div>
-                  )}
+                  ))}
+                  {rosterChars.length > 6 ? (
+                    <div className="story-meta-ava story-meta-ava-more" style={{ marginLeft: -12, zIndex: 3 }}>+{rosterChars.length - 6}</div>
+                  ) : null}
                 </div>
-                <div className="story-meta-body">
-                  <div className="story-meta-title">
-                    {isEnsemble
-                      ? `群像：《 ${rosterChars.map((c) => c.name).join(" · ")} 》`
-                      : `本次阅读：《 ${currentCharacter.name} 》`}
+                <div className="story-meta-ensemble-label">群像 · {rosterChars.length} 位角色同场</div>
+              </div>
+            ) : (
+              <div className="story-meta">
+                <div className="story-meta-layout">
+                  <div className="story-meta-cover">
+                    {currentCharacter.avatar ? (
+                      <img src={currentCharacter.avatar} alt="cover" />
+                    ) : (
+                      <div className="story-meta-cover-fallback" aria-hidden="true">
+                        <span className="story-meta-cover-char">{currentCharacter.name.trim().charAt(0) || "书"}</span>
+                        <span className="story-meta-cover-line" />
+                        <span className="story-meta-cover-sub">STORY</span>
+                      </div>
+                    )}
                   </div>
-                  <div className="story-meta-tags">
-                    {isEnsemble
-                      ? `群像 · ${userIdentity?.name || "我"} 与 ${rosterChars.map((c) => c.name).join("、")}`
-                      : `${userIdentity?.name || "我"} x ${currentCharacter.name}`}
-                  </div>
-                  <div className="story-meta-desc">
-                    {isEnsemble
-                      ? "“他们的故事在同一场景里交汇，谁都不是配角。”"
-                      : "“有些故事，在开始之前就已经写好了结局。”"}
+                  <div className="story-meta-body">
+                    <div className="story-meta-title">本次阅读：《 {currentCharacter.name} 》</div>
+                    <div className="story-meta-tags">{userIdentity?.name || "我"} x {currentCharacter.name}</div>
+                    <div className="story-meta-desc">“有些故事，在开始之前就已经写好了结局。”</div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {messages.length === 0 ? (
               <div className="story-empty">

@@ -338,44 +338,51 @@
           color: #c9c9c9;
           text-transform: uppercase;
         }
-        /* 群像封面拼贴：把 90x120 封面切成几格，铺满同场角色头像 */
-        .story-meta-cover-collage {
-          width: 100%;
-          height: 100%;
-          display: grid;
-          gap: 1px;
-          background: #e6e6e6;
+        /* 群像极简题头：叠放头像 + 一行小字，替代单人书封 */
+        .story-meta-ensemble {
+          display: flex;
+          align-items: center;
+          gap: 14px;
         }
-        .story-meta-cover-collage[data-count="1"] { grid-template-columns: 1fr; }
-        .story-meta-cover-collage[data-count="2"] { grid-template-columns: 1fr 1fr; }
-        .story-meta-cover-collage[data-count="3"],
-        .story-meta-cover-collage[data-count="4"] {
-          grid-template-columns: 1fr 1fr;
-          grid-template-rows: 1fr 1fr;
+        .story-meta-ava-stack {
+          display: flex;
+          align-items: center;
         }
-        /* 三人时让第一格横跨顶部一整行，视觉更稳 */
-        .story-meta-cover-collage[data-count="3"] .story-meta-cover-tile:first-child {
-          grid-column: 1 / -1;
-        }
-        .story-meta-cover-tile {
-          position: relative;
+        .story-meta-ava {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
           overflow: hidden;
-          background: #f6f6f6;
+          flex-shrink: 0;
           display: flex;
           align-items: center;
           justify-content: center;
-          min-height: 0;
+          background: var(--c-story-cover-bg, #f1f5f9);
+          border: 2px solid var(--c-story-paper, #fbf7f2);
+          box-shadow: var(--story-paper-shadow);
         }
-        .story-meta-cover-tile img {
+        .story-meta-ava img {
           width: 100%; height: 100%; object-fit: cover;
           filter: contrast(0.95) brightness(1.05);
         }
-        .story-meta-cover-tile-char {
+        .story-meta-ava span {
           font-family: var(--story-font, serif);
-          font-size: 18px;
+          font-size: 16px;
           font-weight: 600;
           color: #b6b6b6;
           line-height: 1;
+        }
+        .story-meta-ava-more {
+          font-family: var(--story-font, serif);
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--c-story-sub, #64748b);
+        }
+        .story-meta-ensemble-label {
+          font-family: var(--story-font, serif);
+          font-size: calc(14px*var(--app-text-scale,1));
+          color: var(--c-story-heading, #1e293b);
+          letter-spacing: 0.06em;
         }
         .story-meta-body {
           flex: 1;
