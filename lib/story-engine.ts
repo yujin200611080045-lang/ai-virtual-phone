@@ -21,7 +21,7 @@ import { buildCalendarScheduleMarker, getCurrentCalendarScheduleForPrompt } from
 import { getWeekStartIso } from "./calendar-utils";
 import { parseStoryResponse } from "./story-parser";
 import { STORY_PARSER_VERSION } from "./story-parser";
-import { loadStoryMessages, loadStorySessions, replaceStoryMessages, type StoryMessage } from "./story-storage";
+import { loadStoryMessages, replaceStoryMessages, type StoryMessage } from "./story-storage";
 import type { ChatMessage } from "./chat-storage";
 import { MacroEngine } from "./macro-engine";
 
@@ -70,7 +70,7 @@ function toHistoryMessage(message: StoryMessage, contextExcludedTags?: string): 
   };
 }
 
-function resolveStoryConfigs(characterId: string): {
+function resolveStoryConfigs(characterId: string, participantIds: string[] = []): {
   apiConfig: ApiConfig;
   preset: PresetConfig | null;
   regexes: RegexConfig[];
@@ -114,7 +114,8 @@ function resolveStoryConfigs(characterId: string): {
   // 群像剧情：全体同场角色都是平等主角，各自绑定的专属世界书取并集，谁有专属都带上。
   // API/预设/regex 一次生成只能用一套，沿用当前会话角色的绑定（用户各角色绑定一致时无差别）。
   const worldBookIds = new Set<string>(activeSlot.worldBookIds || []);
-  for (const participantId of resolveStoryParticipantIds(characterId)) {
+  for (const participantId of participantIds) {
+    if (!participantId || participantId === characterId) continue;
     const slot = resolveBinding(bindings, participantId, "story");
     (slot.worldBookIds || []).forEach((id) => worldBookIds.add(id));
   }
@@ -145,17 +146,18 @@ export function getStoryRenderSignature(characterId: string): { regexSignature: 
 export async function generateStoryCompletion(
   characterId: string,
   history: StoryMessage[],
-  options?: { sessionFoldTags?: string; sessionContextExcludedTags?: string; signal?: AbortSignal },
+  options?: { sessionFoldTags?: string; sessionContextExcludedTags?: string; signal?: AbortSignal; participantIds?: string[] },
 ): Promise<StoryGenerationResult> {
   const character = loadCharacters().find((item) => item.id === characterId);
   if (!character) {
     throw new ChatEngineError(`Character not found: ${characterId}`);
   }
 
-  const { apiConfig, preset, regexes, worldBooks, regexSignature, summaryTag } = resolveStoryConfigs(characterId);
+  const participantIds = options?.participantIds ?? [];
+  const { apiConfig, preset, regexes, worldBooks, regexSignature, summaryTag } = resolveStoryConfigs(characterId, participantIds);
   const effectiveFoldTags = options?.sessionFoldTags?.trim() || DEFAULT_STORY_FOLD_TAGS;
   const effectiveContextExcludedTags = options?.sessionContextExcludedTags?.trim() || DEFAULT_STORY_CONTEXT_EXCLUDED_TAGS;
-  const llmMessages = await buildStoryPromptMessages(characterId, history, preset, regexes, worldBooks, effectiveContextExcludedTags);
+  const llmMessages = await buildStoryPromptMessages(characterId, history, preset, regexes, worldBooks, effectiveContextExcludedTags, participantIds);
 
   const userIdentity = resolveUserIdentity(characterId, "story");
   const macroEngine = new MacroEngine(character.name, userIdentity?.name ?? "用户");
@@ -182,23 +184,16 @@ export async function generateStoryCompletion(
   };
 }
 
-/** 群像剧情：读取本剧情会话中主导角色之外的同场角色 ID（去重、去掉主角自身与已删除角色）。 */
-function resolveStoryParticipantIds(characterId: string): string[] {
-  const session = loadStorySessions().find((item) => item.characterId === characterId);
-  const ids = session?.participantIds;
-  if (!ids || ids.length === 0) return [];
-  const known = new Set(loadCharacters().map((c) => c.id));
-  return Array.from(new Set(ids)).filter((id) => id !== characterId && known.has(id));
-}
-
-/** 群像剧情：返回打开的角色 + 其余同场角色（cast）。cast 为空即普通单人剧情。 */
-function getStoryCast(characterId: string): { character: Character; cast: Character[] } {
-  const character = loadCharacters().find((item) => item.id === characterId);
+/** 群像剧情：给定主导角色 + 显式同场角色 ID，返回主角与其余角色（cast）。cast 为空即普通单人剧情。 */
+function getStoryCast(characterId: string, participantIds: string[] = []): { character: Character; cast: Character[] } {
+  const allChars = loadCharacters();
+  const character = allChars.find((item) => item.id === characterId);
   if (!character) {
     throw new ChatEngineError(`Character not found: ${characterId}`);
   }
-  const allChars = loadCharacters();
-  const cast = resolveStoryParticipantIds(characterId)
+  const seen = new Set<string>([characterId]);
+  const cast = participantIds
+    .filter((id) => id && !seen.has(id) && (seen.add(id), true))
     .map((id) => allChars.find((c) => c.id === id))
     .filter(Boolean) as Character[];
   return { character, cast };
@@ -229,8 +224,9 @@ async function buildStoryPromptMessages(
   regexes: RegexConfig[],
   worldBooks: WorldBookConfig[],
   contextExcludedTags: string = DEFAULT_STORY_CONTEXT_EXCLUDED_TAGS,
+  participantIds: string[] = [],
 ): Promise<LLMMessage[]> {
-  const { character: baseCharacter, cast } = getStoryCast(characterId);
+  const { character: baseCharacter, cast } = getStoryCast(characterId, participantIds);
 
   const userIdentity = resolveUserIdentity(characterId, "story");
   const historyMessages = history.map((message) => toHistoryMessage(message, contextExcludedTags));
@@ -296,15 +292,16 @@ async function buildStoryPromptMessages(
 export async function previewStoryPromptPayload(
   characterId: string,
   history: StoryMessage[],
-  options?: { sessionContextExcludedTags?: string },
+  options?: { sessionContextExcludedTags?: string; participantIds?: string[] },
 ): Promise<StoryPreviewResult> {
   const character = loadCharacters().find((item) => item.id === characterId);
   if (!character) {
     throw new ChatEngineError(`Character not found: ${characterId}`);
   }
-  const { apiConfig, preset, regexes, worldBooks } = resolveStoryConfigs(characterId);
+  const participantIds = options?.participantIds ?? [];
+  const { apiConfig, preset, regexes, worldBooks } = resolveStoryConfigs(characterId, participantIds);
   const effectiveContextExcludedTags = options?.sessionContextExcludedTags?.trim() || DEFAULT_STORY_CONTEXT_EXCLUDED_TAGS;
-  const llmMessages = await buildStoryPromptMessages(characterId, history, preset, regexes, worldBooks, effectiveContextExcludedTags);
+  const llmMessages = await buildStoryPromptMessages(characterId, history, preset, regexes, worldBooks, effectiveContextExcludedTags, participantIds);
   return {
     messages: previewMessagesForApi(apiConfig, preset, llmMessages),
     characterName: character.name,
