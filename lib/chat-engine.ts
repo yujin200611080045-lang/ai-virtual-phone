@@ -71,7 +71,7 @@ import { isNeteaseConfigured, getUserPlaylists, getPlaylistTracks, checkLoginSta
 import { buildCalendarScheduleMarker, getCurrentCalendarScheduleForPrompt } from "./calendar-storage";
 import { getWeekStartIso } from "./calendar-utils";
 import { buildCharacterTimeContext } from "./character-time";
-import { getPromptTimestampOptionsForTimeContext } from "./prompt-time";
+import { getPromptTimestampOptionsForTimeContext, resolvePromptTimeAware } from "./prompt-time";
 import { kvGet, kvSet, kvRemove, registerKvMigration } from "./kv-db";
 import { stripStateAndInnerForPrompt } from "./prompt-sanitizer";
 import { getInternalCapability, getInternalCapabilitySubToolDefinitions } from "./internal-capability-storage";
@@ -1944,7 +1944,7 @@ export async function buildChatPromptMessages(
         timeContext: promptTimeContext,
         promptTimestampOptions,
         enableVision: config.enableImageRecognition,
-        timeAware: loadChatAppSettings().timeAware,
+        timeAware: resolvePromptTimeAware(undefined, character.id),
         tools: toolsPrompt,
         customAppRichMediaDirectives,
         chatBilingualInstruction,

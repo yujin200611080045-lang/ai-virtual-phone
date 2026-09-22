@@ -10,6 +10,7 @@ import {
 } from "./settings-storage";
 import type { ApiConfig, PresetConfig, RegexConfig, WorldBookConfig } from "./settings-types";
 import { assemblePromptPayload, type LLMMessage } from "./llm-prompt-assembler";
+import { resolvePromptTimeAware } from "./prompt-time";
 import { previewMessagesForApi, sendLLMRequest, ChatEngineError } from "./chat-engine";
 import { loadMemoryConfig } from "./memory-storage";
 import { retrieveCoreMemoriesForPrompt, retrieveMemoriesForPrompt } from "./memory-service";
@@ -209,6 +210,7 @@ async function buildStoryPromptMessages(
     regexes,
     userIdentity,
     appId: "story",
+    timeAware: resolvePromptTimeAware(undefined, characterId),
     scheduleSummary: buildCalendarScheduleMarker("character", characterId, getWeekStartIso(now)),
     currentSchedule: getCurrentCalendarScheduleForPrompt("character", characterId, now),
     coreMemories: coreMemories ? formatCoreMemories(coreMemories) : "",

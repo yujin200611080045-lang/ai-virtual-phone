@@ -173,7 +173,7 @@ export function loadNativeTimeline(
     const chars = loadCharacters();
     const userName = options?.userName ?? resolveUserIdentity(characterId, options?.appId)?.name ?? "用户";
     const charName = chars.find(c => c.id === characterId)?.name ?? "角色";
-    const timeAware = resolvePromptTimeAware(options?.timeAware);
+    const timeAware = resolvePromptTimeAware(options?.timeAware, characterId);
     const timestampOptions = options?.promptTimestampOptions;
 
     // ── Chat messages ──
@@ -936,7 +936,7 @@ export function prepareShortTermContext(
     wbActivationContext: string;
     unifiedRecentItems: UnifiedRecentItem[];
 } {
-    const timeAware = resolvePromptTimeAware(options?.timeAware);
+    const timeAware = resolvePromptTimeAware(options?.timeAware, characterId);
     let timeline = loadNativeTimeline(characterId, {
         userName: options?.userName,
         appId: appId as import("./settings-types").ContentAppId,

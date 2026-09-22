@@ -36,9 +36,15 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function resolvePromptTimeAware(value?: boolean): boolean {
+export function resolvePromptTimeAware(value?: boolean, characterId?: string): boolean {
   if (typeof value === "boolean") return value;
-  return loadChatAppSettings().timeAware !== false;
+  const settings = loadChatAppSettings();
+  // 按角色细分：某角色单独设了开/关就用它；没设则跟随全局默认。
+  if (characterId) {
+    const per = settings.characterTimeAware?.[characterId];
+    if (typeof per === "boolean") return per;
+  }
+  return settings.timeAware !== false;
 }
 
 export function formatPromptTimestamp(isoStr: string, options?: PromptTimestampOptions): string {

@@ -254,6 +254,7 @@ export type ChatMessage = {
 export type ChatAppSettings = {
     globalAppBackground?: string; // base64 or URL
     timeAware?: boolean; // When true, inject timestamps into prompt so AI knows message timing (default: true)
+    characterTimeAware?: Record<string, boolean>; // 按角色覆盖时间感知：true=开/false=关；无此项=跟随全局 timeAware
     promptViewerEnabled?: boolean; // When true, show the floating prompt viewer entry
     quickActionEnabled?: boolean; // When true, show the floating quick action entry
     browserNotificationsEnabled?: boolean; // When true, send browser Notification API alerts when page is hidden
@@ -1649,6 +1650,20 @@ export function saveChatAppSettings(settings: ChatAppSettings) {
     if (typeof window === "undefined") return;
     kvSet(SETTINGS_KEY, JSON.stringify(settings));
     window.dispatchEvent(new CustomEvent(CHAT_APP_SETTINGS_UPDATED_EVENT, { detail: settings }));
+}
+
+/** 读某角色的时间感知覆盖：true=开 / false=关 / undefined=跟随全局。 */
+export function getCharacterTimeAware(characterId: string): boolean | undefined {
+    return loadChatAppSettings().characterTimeAware?.[characterId];
+}
+
+/** 设某角色的时间感知覆盖；传 undefined 表示清除覆盖、回到跟随全局。 */
+export function setCharacterTimeAware(characterId: string, value: boolean | undefined): void {
+    const settings = loadChatAppSettings();
+    const map = { ...(settings.characterTimeAware || {}) };
+    if (value === undefined) delete map[characterId];
+    else map[characterId] = value;
+    saveChatAppSettings({ ...settings, characterTimeAware: map });
 }
 
 // --- Follow-up schedule persistence (supports multiple sessions) ---
