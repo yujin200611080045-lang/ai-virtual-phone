@@ -945,6 +945,37 @@ export function StoryApp({ onClose }: StoryAppProps) {
           </div>
         </div>
 
+        {characters.length > 1 ? (
+          <div className="story-drawer-section">
+            <div className="story-drawer-eyebrow">同场角色（群像）</div>
+            <div style={{ fontSize: "calc(11px*var(--app-text-scale,1))", margin: "0 0 8px", color: "var(--c-story-sub, rgba(95, 82, 61, 0.72))" }}>
+              勾选后与「{currentCharacter?.name || "主角"}」同场演出，剧情会同时塑造他们几个。取消勾选即回到单人剧情。
+            </div>
+            <div className="story-character-list">
+              {characters.filter((c) => c.id !== activeCharacterId).map((character) => {
+                const selected = (currentSession?.participantIds || []).includes(character.id);
+                return (
+                  <button
+                    key={character.id}
+                    className="story-character-chip"
+                    data-active={selected ? "true" : undefined}
+                    onClick={() => {
+                      const current = currentSession?.participantIds || [];
+                      const next = selected
+                        ? current.filter((id) => id !== character.id)
+                        : [...current, character.id];
+                      applySessionUpdates({ participantIds: next });
+                    }}
+                  >
+                    <Avatar src={character.avatar || undefined} name={character.name} size="lg" />
+                    <span className="story-character-name">{character.name}{selected ? " ✓" : ""}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
         <div className="story-drawer-section">
           <div className="story-drawer-eyebrow">显示选项</div>
           <div style={{ padding: "10px 0", borderBottom: "1px solid var(--c-story-drawer-border, rgba(124, 104, 68, 0.08))" }}>

@@ -1,4 +1,5 @@
 import { loadCharacters } from "./character-storage";
+import type { Character } from "./character-types";
 import {
   loadBindingConfig,
   loadApiConfigs,
@@ -20,7 +21,7 @@ import { buildCalendarScheduleMarker, getCurrentCalendarScheduleForPrompt } from
 import { getWeekStartIso } from "./calendar-utils";
 import { parseStoryResponse } from "./story-parser";
 import { STORY_PARSER_VERSION } from "./story-parser";
-import { loadStoryMessages, replaceStoryMessages, type StoryMessage } from "./story-storage";
+import { loadStoryMessages, loadStorySessions, replaceStoryMessages, type StoryMessage } from "./story-storage";
 import type { ChatMessage } from "./chat-storage";
 import { MacroEngine } from "./macro-engine";
 
@@ -174,6 +175,56 @@ export async function generateStoryCompletion(
   };
 }
 
+/** 群像剧情：读取本剧情会话中主导角色之外的同场角色 ID（去重、去掉主角自身与已删除角色）。 */
+function resolveStoryParticipantIds(characterId: string): string[] {
+  const session = loadStorySessions().find((item) => item.characterId === characterId);
+  const ids = session?.participantIds;
+  if (!ids || ids.length === 0) return [];
+  const known = new Set(loadCharacters().map((c) => c.id));
+  return Array.from(new Set(ids)).filter((id) => id !== characterId && known.has(id));
+}
+
+/**
+ * 若本剧情会话选了同场角色，则把这些角色的人设拼进主导角色的 persona，
+ * 让模型在同一场景里同时塑造所有人（群像），而不是轮流发言。
+ * 不改动预设/世界书绑定（仍走主导角色那一套），也不改动存储里的角色卡。
+ */
+function buildEnsemblePromptCharacter(characterId: string): { character: Character; cast: Character[] } {
+  const character = loadCharacters().find((item) => item.id === characterId);
+  if (!character) {
+    throw new ChatEngineError(`Character not found: ${characterId}`);
+  }
+  const participantIds = resolveStoryParticipantIds(characterId);
+  if (participantIds.length === 0) return { character, cast: [] };
+
+  const allChars = loadCharacters();
+  const cast = participantIds
+    .map((id) => allChars.find((c) => c.id === id))
+    .filter(Boolean) as Character[];
+  if (cast.length === 0) return { character, cast: [] };
+
+  const castBlocks = cast.map((c) => {
+    const lines = [`● ${c.name}`, (c.persona || "").trim()];
+    if (c.personality && c.personality.trim()) lines.push(`性格：${c.personality.trim()}`);
+    return lines.filter(Boolean).join("\n");
+  });
+
+  const rosterNames = [character.name, ...cast.map((c) => c.name)].join("、");
+  const ensembleSection = [
+    "",
+    "————————————————",
+    "【群像剧情 · 同场登场角色】",
+    `本场为多角色群像，登场角色：${rosterNames}。你需要同时塑造并推进以下所有角色，让他们在同一场景里真实互动，均衡分配戏份——不要只写其中一个，也不要让谁沦为背景板或旁白提及。每个角色都要保持各自的说话方式、性格与动机。`,
+    "",
+    castBlocks.join("\n\n"),
+  ].join("\n");
+
+  return {
+    character: { ...character, persona: `${character.persona || ""}${ensembleSection}` },
+    cast,
+  };
+}
+
 async function buildStoryPromptMessages(
   characterId: string,
   history: StoryMessage[],
@@ -182,10 +233,7 @@ async function buildStoryPromptMessages(
   worldBooks: WorldBookConfig[],
   contextExcludedTags: string = DEFAULT_STORY_CONTEXT_EXCLUDED_TAGS,
 ): Promise<LLMMessage[]> {
-  const character = loadCharacters().find((item) => item.id === characterId);
-  if (!character) {
-    throw new ChatEngineError(`Character not found: ${characterId}`);
-  }
+  const { character } = buildEnsemblePromptCharacter(characterId);
 
   const userIdentity = resolveUserIdentity(characterId, "story");
   const historyMessages = history.map((message) => toHistoryMessage(message, contextExcludedTags));

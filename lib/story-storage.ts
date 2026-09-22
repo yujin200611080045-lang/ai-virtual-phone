@@ -11,6 +11,8 @@ export type StoryUiPrefs = {
 export type StorySession = {
   id: string;
   characterId: string;
+  /** 群像剧情：除主导角色（characterId）外同场登场的其他角色 ID。空/缺省=普通单人剧情。 */
+  participantIds?: string[];
   title?: string;
   updatedAt: string;
   customCSS?: string;
