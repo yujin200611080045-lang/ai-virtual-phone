@@ -111,7 +111,14 @@ function resolveStoryConfigs(characterId: string): {
     .filter(Boolean) as RegexConfig[];
 
   const allWorldBooks = loadWorldBooks();
-  const worldBooks = (activeSlot.worldBookIds || [])
+  // 群像剧情：全体同场角色都是平等主角，各自绑定的专属世界书取并集，谁有专属都带上。
+  // API/预设/regex 一次生成只能用一套，沿用当前会话角色的绑定（用户各角色绑定一致时无差别）。
+  const worldBookIds = new Set<string>(activeSlot.worldBookIds || []);
+  for (const participantId of resolveStoryParticipantIds(characterId)) {
+    const slot = resolveBinding(bindings, participantId, "story");
+    (slot.worldBookIds || []).forEach((id) => worldBookIds.add(id));
+  }
+  const worldBooks = Array.from(worldBookIds)
     .map((id) => allWorldBooks.find((worldBook) => worldBook.id === id))
     .filter(Boolean) as WorldBookConfig[];
   const summaryTag = preset?.story_summary_tag?.trim() || "summary";
@@ -213,8 +220,8 @@ function buildEnsemblePromptCharacter(characterId: string): { character: Charact
   const ensembleSection = [
     "",
     "————————————————",
-    "【群像剧情 · 同场登场角色】",
-    `本场为多角色群像，登场角色：${rosterNames}。你需要同时塑造并推进以下所有角色，让他们在同一场景里真实互动，均衡分配戏份——不要只写其中一个，也不要让谁沦为背景板或旁白提及。每个角色都要保持各自的说话方式、性格与动机。`,
+    "【群像剧情 · 全体同场主角】",
+    `本场为多角色群像，登场角色：${rosterNames}。以上角色全部是平等的主角，没有主次之分——${character.name} 的人设见上文，以下几位与其同为主角。请同时塑造并推进所有人，让他们在同一场景里真实互动、均衡分配戏份，不要只写其中一个，也不要让谁沦为背景板或仅在旁白里被提及。每个角色都保持各自的说话方式、性格与动机。`,
     "",
     castBlocks.join("\n\n"),
   ].join("\n");
