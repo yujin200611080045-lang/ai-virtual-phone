@@ -904,6 +904,13 @@ export function StoryApp({ onClose }: StoryAppProps) {
 
   const sessionScope = `.story-session-${currentSession.id}`;
 
+  // 群像：本会话同场角色（全体平等主角，含打开的角色）。cast 为空即普通单人剧情。
+  const ensembleCast = (currentSession.participantIds || [])
+    .map((id) => characters.find((c) => c.id === id))
+    .filter(Boolean) as typeof characters;
+  const isEnsemble = ensembleCast.length > 0;
+  const rosterChars = isEnsemble ? [currentCharacter, ...ensembleCast] : [currentCharacter];
+
   return (
     <div
       className={`story-app-shell story-session-${currentSession.id}`}
@@ -1085,7 +1092,25 @@ export function StoryApp({ onClose }: StoryAppProps) {
             <div className="story-meta">
               <div className="story-meta-layout">
                 <div className="story-meta-cover">
-                  {currentCharacter.avatar ? (
+                  {isEnsemble ? (
+                    <div className="story-meta-cover-collage" data-count={Math.min(rosterChars.length, 4)} aria-hidden="true">
+                      {rosterChars.slice(0, 4).map((c, i) => {
+                        const overflow = rosterChars.length - 4;
+                        const showOverflow = i === 3 && overflow > 0;
+                        return (
+                          <div key={c.id} className="story-meta-cover-tile">
+                            {c.avatar && !showOverflow ? (
+                              <img src={c.avatar} alt="" />
+                            ) : (
+                              <span className="story-meta-cover-tile-char">
+                                {showOverflow ? `+${overflow + 1}` : (c.name.trim().charAt(0) || "书")}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : currentCharacter.avatar ? (
                     <img src={currentCharacter.avatar} alt="cover" />
                   ) : (
                     <div className="story-meta-cover-fallback" aria-hidden="true">
@@ -1096,13 +1121,20 @@ export function StoryApp({ onClose }: StoryAppProps) {
                   )}
                 </div>
                 <div className="story-meta-body">
-                  <div className="story-meta-title">本次阅读：《 {currentCharacter.name} 》</div>
+                  <div className="story-meta-title">
+                    {isEnsemble
+                      ? `群像：《 ${rosterChars.map((c) => c.name).join(" · ")} 》`
+                      : `本次阅读：《 ${currentCharacter.name} 》`}
+                  </div>
                   <div className="story-meta-tags">
-                    {userIdentity?.name || "我"} x {currentCharacter.name}
+                    {isEnsemble
+                      ? `群像 · ${userIdentity?.name || "我"} 与 ${rosterChars.map((c) => c.name).join("、")}`
+                      : `${userIdentity?.name || "我"} x ${currentCharacter.name}`}
                   </div>
                   <div className="story-meta-desc">
-                    {/* Character type might not have description, so we use a stylized default text */}
-                    “有些故事，在开始之前就已经写好了结局。”
+                    {isEnsemble
+                      ? "“他们的故事在同一场景里交汇，谁都不是配角。”"
+                      : "“有些故事，在开始之前就已经写好了结局。”"}
                   </div>
                 </div>
               </div>
@@ -1112,8 +1144,8 @@ export function StoryApp({ onClose }: StoryAppProps) {
               <div className="story-empty">
                 <BookOpenIcon width={28} height={28} opacity={0.45} />
                 <div>
-                  <div className="text-[calc(14px*var(--app-text-scale,1))] font-medium text-[var(--c-story-heading,#1e293b)] mb-1">故事从这里开始</div>
-                  <div className="text-[calc(12px*var(--app-text-scale,1))] opacity-70">从底部输入一段引导，剧情会继续展开。</div>
+                  <div className="text-[calc(14px*var(--app-text-scale,1))] font-medium text-[var(--c-story-heading,#1e293b)] mb-1">{isEnsemble ? "群像故事从这里开始" : "故事从这里开始"}</div>
+                  <div className="text-[calc(12px*var(--app-text-scale,1))] opacity-70">{isEnsemble ? `${rosterChars.length} 位角色同场。从底部输入一段引导，故事会同时展开他们几个。` : "从底部输入一段引导，剧情会继续展开。"}</div>
                 </div>
               </div>
             ) : (

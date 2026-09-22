@@ -338,6 +338,45 @@
           color: #c9c9c9;
           text-transform: uppercase;
         }
+        /* 群像封面拼贴：把 90x120 封面切成几格，铺满同场角色头像 */
+        .story-meta-cover-collage {
+          width: 100%;
+          height: 100%;
+          display: grid;
+          gap: 1px;
+          background: #e6e6e6;
+        }
+        .story-meta-cover-collage[data-count="1"] { grid-template-columns: 1fr; }
+        .story-meta-cover-collage[data-count="2"] { grid-template-columns: 1fr 1fr; }
+        .story-meta-cover-collage[data-count="3"],
+        .story-meta-cover-collage[data-count="4"] {
+          grid-template-columns: 1fr 1fr;
+          grid-template-rows: 1fr 1fr;
+        }
+        /* 三人时让第一格横跨顶部一整行，视觉更稳 */
+        .story-meta-cover-collage[data-count="3"] .story-meta-cover-tile:first-child {
+          grid-column: 1 / -1;
+        }
+        .story-meta-cover-tile {
+          position: relative;
+          overflow: hidden;
+          background: #f6f6f6;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 0;
+        }
+        .story-meta-cover-tile img {
+          width: 100%; height: 100%; object-fit: cover;
+          filter: contrast(0.95) brightness(1.05);
+        }
+        .story-meta-cover-tile-char {
+          font-family: var(--story-font, serif);
+          font-size: 18px;
+          font-weight: 600;
+          color: #b6b6b6;
+          line-height: 1;
+        }
         .story-meta-body {
           flex: 1;
           display: flex;
