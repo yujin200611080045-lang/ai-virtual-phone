@@ -16,6 +16,8 @@ import {
     removeChatContact,
     normalizeVisionImagePromptLimit,
     MAX_VISION_IMAGE_PROMPT_LIMIT,
+    getCharacterTimeAware,
+    setCharacterTimeAware,
     type ChatMessage,
 } from "@/lib/chat-storage";
 import {
@@ -43,7 +45,7 @@ import { downloadFile } from "@/lib/download-utils";
 import { getSchemes, saveScheme, deleteScheme, type CSSScheme } from "@/lib/css-scheme-storage";
 import { CustomStatusFrame } from "@/components/chat/custom-status-frame";
 import { KeyboardAutoSendDebounceItem } from "@/components/chat/keyboard-auto-send-debounce-item";
-import { ChevronRight, Image as ImageIcon, Video, Mic, UserMinus, UserPlus, Users, Pin, MessageSquare, Search, AlertCircle, Code, Laptop, Trash2, Smile, Sparkles, X, Play, Upload, Download, Save, FolderOpen, type LucideIcon } from "lucide-react";
+import { ChevronRight, Image as ImageIcon, Video, Mic, UserMinus, UserPlus, Users, Pin, MessageSquare, Search, AlertCircle, Code, Laptop, Trash2, Smile, Sparkles, X, Play, Upload, Download, Save, FolderOpen, Clock, type LucideIcon } from "lucide-react";
 import { BINDING_ACCENTS, CONTENT_APP_ACCENTS } from "@/lib/ui-accent-colors";
 import CSSSchemeBar from "@/components/ui/css-scheme-picker";
 import { ConfirmDialog } from "@/components/ui/modal";
@@ -295,6 +297,10 @@ export function ChatSettingsPanel({
     const [videoBackground, setVideoBackground] = useState<string>(session.videoBackground || "");
     const [voiceBackground, setVoiceBackground] = useState<string>(session.voiceBackground || "");
     const [isPinned, setIsPinned] = useState(session.isPinned || false);
+    // 时间感知（按角色细分）：undefined=跟随全局，true=开，false=关
+    const [timeAwareOverride, setTimeAwareOverride] = useState<boolean | undefined>(
+        () => (session.isGroup ? undefined : getCharacterTimeAware(session.contactId)),
+    );
     // 自定义状态栏（状态区）
     const [statusRegion, setStatusRegion] = useState<StatusRegionConfig>(() => getStatusRegionConfig(session.id));
     const [showStatusRegionDialog, setShowStatusRegionDialog] = useState(false);
@@ -979,6 +985,37 @@ export function ChatSettingsPanel({
                             <Toggle checked={isPinned} onChange={c => { setIsPinned(c); updateSession({ isPinned: c }); }} />
                         </div>
                     </div>
+                    {!session.isGroup && (
+                        <div className="menu-item">
+                            <ChatInfoIcon icon={Clock} color={BINDING_ACCENTS.regex} />
+                            <div className="menu-label-group">
+                                <span className="menu-label">时间感知</span>
+                                <span className="menu-desc">是否把真实时间注入这个角色的私聊与剧情。跟随全局＝用设置里的总开关</span>
+                            </div>
+                            <div className="menu-right gap-1">
+                                {([
+                                    { label: "跟随全局", value: undefined as boolean | undefined },
+                                    { label: "开", value: true },
+                                    { label: "关", value: false },
+                                ]).map(opt => {
+                                    const active = timeAwareOverride === opt.value;
+                                    return (
+                                        <button
+                                            key={opt.label}
+                                            type="button"
+                                            className={`ui-btn h-8 px-3 ${active ? "ui-btn-primary" : "ui-btn-ghost"}`}
+                                            onClick={() => {
+                                                setTimeAwareOverride(opt.value);
+                                                setCharacterTimeAware(session.contactId, opt.value);
+                                            }}
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                     <div className="menu-item">
                         <ChatInfoIcon icon={ImageIcon} color={BINDING_ACCENTS.api} />
                         <div className="menu-label-group">
