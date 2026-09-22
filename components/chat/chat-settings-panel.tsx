@@ -293,6 +293,7 @@ export function ChatSettingsPanel({
     offlineHistoryBusy = false,
 }: ChatSettingsPanelProps) {
     const [backgroundImage, setBackgroundImage] = useState<string>(session.backgroundImage || "");
+    const [userAvatarOverride, setUserAvatarOverride] = useState<string>(session.userAvatarOverride || "");
     const [alias, setAlias] = useState<string>(session.alias || "");
     const [videoBackground, setVideoBackground] = useState<string>(session.videoBackground || "");
     const [voiceBackground, setVoiceBackground] = useState<string>(session.voiceBackground || "");
@@ -1138,6 +1139,20 @@ export function ChatSettingsPanel({
                         </div>
                         <input type="file" accept="image/*" onChange={e => handleImageUpload(e, setBackgroundImage, "backgroundImage")} className="hidden" />
                     </label>
+                    {!session.isGroup && (
+                        <label className="menu-item">
+                            <ChatInfoIcon icon={Smile} color={BINDING_ACCENTS.identity} />
+                            <div className="menu-label-group">
+                                <span className="menu-label">我方头像（仅本聊天）</span>
+                                <span className="menu-desc">只在这个角色的聊天界面显示，不改动用户人设本身，也不影响其它角色和动态</span>
+                            </div>
+                            <div className="menu-right">
+                                {userAvatarOverride && <><span className="menu-desc mr-1">已设置</span><button className="menu-desc mr-1 text-[var(--c-danger)]" onClick={e => { e.preventDefault(); setUserAvatarOverride(""); updateSession({ userAvatarOverride: "" }); }}>清除</button></>}
+                                <ChevronRight size={16} />
+                            </div>
+                            <input type="file" accept="image/*" onChange={e => handleImageUpload(e, setUserAvatarOverride, "userAvatarOverride")} className="hidden" />
+                        </label>
+                    )}
                     {session.isGroup ? (
                         <>
                             <div className="menu-item" style={{ cursor: "default" }}>

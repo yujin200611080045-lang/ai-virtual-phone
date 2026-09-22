@@ -46,6 +46,8 @@ export type ChatSession = {
     alias?: string;
     videoBackground?: string;
     voiceBackground?: string;
+    /** 仅本会话生效的“我方头像”覆盖：在这个角色的聊天界面用不同头像，不影响用户人设本身与其它地方 */
+    userAvatarOverride?: string;
     isBlacklisted?: boolean;
     customCSS?: string;
     isMuted?: boolean;

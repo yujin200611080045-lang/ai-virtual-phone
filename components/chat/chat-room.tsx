@@ -1091,6 +1091,9 @@ export function ChatRoom({ session, onBack }: ChatRoomProps) {
     const [callInitiator, setCallInitiator] = useState<"user" | "character">("user");
     const [callInitiatorName, setCallInitiatorName] = useState<string>("");
     const [userIdentity, setUserIdentity] = useState<UserIdentity | null>(null);
+    // 我方头像：本会话若设置了覆盖头像（存的是图片 ID / data / http），解析后只在这个聊天界面用它，否则用绑定人设的头像
+    const [userAvatarResolved, setUserAvatarResolved] = useState<string | null>(null);
+    const userDisplayAvatarUrl = userAvatarResolved || userIdentity?.avatarUrl || "";
     const [enterToSendEnabled, setEnterToSendEnabled] = useState(() => loadChatAppSettings().enterToSendEnabled === true);
 
     // Rich media input modals
@@ -1240,6 +1243,25 @@ export function ChatRoom({ session, onBack }: ChatRoomProps) {
             });
         });
     }, [session.backgroundImage]);
+
+    useEffect(() => {
+        const override = session.userAvatarOverride;
+        if (!override) {
+            setUserAvatarResolved(null);
+            return;
+        }
+        if (override.startsWith("data:") || override.startsWith("http")) {
+            setUserAvatarResolved(override);
+            return;
+        }
+        let cancelled = false;
+        import("@/lib/chat-asset-storage").then(({ getChatImageFromIndexedDB }) => {
+            getChatImageFromIndexedDB(override).then(dataUrl => {
+                if (!cancelled) setUserAvatarResolved(dataUrl || null);
+            });
+        });
+        return () => { cancelled = true; };
+    }, [session.userAvatarOverride]);
 
     // Message Actions state
     const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
@@ -5236,7 +5258,7 @@ export function ChatRoom({ session, onBack }: ChatRoomProps) {
                                 <div className="chat-offline-entry" data-role="user" style={offlineDisplay.userContent.trim() ? undefined : { display: "none" }}>
                                     {/* 头像占位：默认 display:none（见 chat.css），供自定义 CSS 显示 */}
                                     <div className="chat-offline-avatar" aria-hidden="true">
-                                        {userIdentity?.avatarUrl ? <img src={userIdentity.avatarUrl} alt="" /> : <User size={18} color="var(--c-text)" />}
+                                        {userDisplayAvatarUrl ? <img src={userDisplayAvatarUrl} alt="" /> : <User size={18} color="var(--c-text)" />}
                                     </div>
                                     <div className="chat-offline-label">你</div>
                                     <div
@@ -5351,7 +5373,7 @@ export function ChatRoom({ session, onBack }: ChatRoomProps) {
                                 <div className="chat-offline-entry" data-role="user" style={pendingOfflineUserText ? undefined : { display: "none" }}>
                                     {/* 头像占位：默认 display:none（见 chat.css），供自定义 CSS 显示 */}
                                     <div className="chat-offline-avatar" aria-hidden="true">
-                                        {userIdentity?.avatarUrl ? <img src={userIdentity.avatarUrl} alt="" /> : <User size={18} color="var(--c-text)" />}
+                                        {userDisplayAvatarUrl ? <img src={userDisplayAvatarUrl} alt="" /> : <User size={18} color="var(--c-text)" />}
                                     </div>
                                     <div className="chat-offline-label">你</div>
                                     <div className="chat-offline-text">
@@ -5775,8 +5797,8 @@ export function ChatRoom({ session, onBack }: ChatRoomProps) {
                                         )}
                                         {msg.role === "user" && !isEmptyBubble && (
                                             <div className="chat-msg-avatar w-[40px] h-[40px] rounded-[20px] bg-[var(--c-page-body-bg)] shrink-0 flex items-center justify-center overflow-hidden">
-                                                {userIdentity?.avatarUrl ? (
-                                                    <img src={userIdentity.avatarUrl} alt="Me" className="w-full h-full object-cover rounded-[20px]" />
+                                                {userDisplayAvatarUrl ? (
+                                                    <img src={userDisplayAvatarUrl} alt="Me" className="w-full h-full object-cover rounded-[20px]" />
                                                 ) : (
                                                     <User size={20} color="var(--c-text)" />
                                                 )}
