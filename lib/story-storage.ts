@@ -11,11 +11,35 @@ export type StoryUiPrefs = {
 export type StorySession = {
   id: string;
   characterId: string;
+  /** 群像剧情：除主导角色（characterId）外同场登场的其他角色 ID。空/缺省=普通单人剧情。 */
+  participantIds?: string[];
   title?: string;
   updatedAt: string;
   customCSS?: string;
   foldTags?: string;            // Comma-separated tag names to fold for this session.
   contextExcludedTags?: string; // Comma-separated tag names stripped before sending story history to the LLM.
+  uiPrefs?: StoryUiPrefs;
+  lastMessageId?: string;
+  lastMessagePreview?: string;
+};
+
+/**
+ * 剧情群组：一个独立的多角色剧情实体（不挂在任何单个角色下）。
+ * 成员全是平等的同场主角；leadCharacterId 决定用谁的「剧情」绑定驱动预设/API/regex
+ * （一次生成只能用一套预设）。群组有自己独立的消息线（sessionId = group.id）。
+ */
+export type StoryGroup = {
+  id: string;
+  name: string;
+  memberIds: string[];
+  /** 该群像用哪个预设生成（从设置里的预设直接选）。空=跟随默认预设。全员平等，无主导角色。 */
+  presetId?: string;
+  /** 仅作技术锚点（解析 API/regex/{{char}}），非“主导”，默认取第一个成员，界面不暴露。 */
+  leadCharacterId: string;
+  updatedAt: string;
+  customCSS?: string;
+  foldTags?: string;
+  contextExcludedTags?: string;
   uiPrefs?: StoryUiPrefs;
   lastMessageId?: string;
   lastMessagePreview?: string;
@@ -44,12 +68,18 @@ export type StoryProjectionEntry = {
 class StoryDatabase extends Dexie {
   sessions!: Dexie.Table<StorySession, string>;
   messages!: Dexie.Table<StoryMessage, string>;
+  groups!: Dexie.Table<StoryGroup, string>;
 
   constructor() {
     super("AiPhoneStoryDB");
     this.version(1).stores({
       sessions: "id, characterId, updatedAt",
       messages: "id, sessionId, createdAt",
+    });
+    this.version(2).stores({
+      sessions: "id, characterId, updatedAt",
+      messages: "id, sessionId, createdAt",
+      groups: "id, updatedAt",
     });
   }
 }
@@ -58,6 +88,7 @@ const storyDb = new StoryDatabase();
 
 let _hydrated = false;
 let _sessionsCache: StorySession[] = [];
+let _groupsCache: StoryGroup[] = [];
 let _messagesCache: StoryMessage[] = [];
 
 function generateId(prefix: string): string {
@@ -128,15 +159,69 @@ function persistStorySessionsSnapshot(sessions: StorySession[]): void {
 
 export async function hydrateStoryStorage(): Promise<void> {
   if (_hydrated || typeof window === "undefined") return;
-  const [sessions, messages] = await Promise.all([
+  const [sessions, messages, groups] = await Promise.all([
     storyDb.sessions.toArray().catch(() => []),
     storyDb.messages.toArray().catch(() => []),
+    storyDb.groups.toArray().catch(() => []),
   ]);
   _messagesCache = messages;
+  _groupsCache = groups.filter((g) => g && g.id && Array.isArray(g.memberIds));
   const normalized = normalizeStorySessions(sessions);
   _sessionsCache = normalized.items;
   if (normalized.changed) persistStorySessionsSnapshot(normalized.items);
   _hydrated = true;
+}
+
+// ————— 剧情群组 CRUD —————
+
+export function loadStoryGroups(): StoryGroup[] {
+  return [..._groupsCache].sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+}
+
+export function getStoryGroup(groupId: string): StoryGroup | null {
+  return _groupsCache.find((g) => g.id === groupId) || null;
+}
+
+export function createStoryGroup(input: { name: string; memberIds: string[]; presetId?: string }): StoryGroup {
+  const memberIds = Array.from(new Set(input.memberIds.filter(Boolean)));
+  const group: StoryGroup = {
+    id: generateId("story_group"),
+    name: input.name.trim() || "剧情群组",
+    memberIds,
+    presetId: input.presetId || undefined,
+    leadCharacterId: memberIds[0] || "",
+    updatedAt: new Date().toISOString(),
+    uiPrefs: {},
+  };
+  _groupsCache.unshift(group);
+  storyDb.groups.put(group).catch(() => undefined);
+  return group;
+}
+
+export function updateStoryGroup(groupId: string, updates: Partial<StoryGroup>): StoryGroup | null {
+  const idx = _groupsCache.findIndex((g) => g.id === groupId);
+  if (idx === -1) return null;
+  const merged: StoryGroup = {
+    ..._groupsCache[idx],
+    ...updates,
+    uiPrefs: { ..._groupsCache[idx].uiPrefs, ...updates.uiPrefs },
+    updatedAt: updates.updatedAt || new Date().toISOString(),
+  };
+  // 成员变动后校正 lead
+  if (updates.memberIds && !merged.memberIds.includes(merged.leadCharacterId)) {
+    merged.leadCharacterId = merged.memberIds[0] || "";
+  }
+  _groupsCache[idx] = merged;
+  storyDb.groups.put(merged).catch(() => undefined);
+  return merged;
+}
+
+export function deleteStoryGroup(groupId: string): void {
+  _groupsCache = _groupsCache.filter((g) => g.id !== groupId);
+  storyDb.groups.delete(groupId).catch(() => undefined);
+  const msgIds = _messagesCache.filter((m) => m.sessionId === groupId).map((m) => m.id);
+  _messagesCache = _messagesCache.filter((m) => m.sessionId !== groupId);
+  storyDb.messages.bulkDelete(msgIds).catch(() => undefined);
 }
 
 export function loadStorySessions(): StorySession[] {
@@ -199,11 +284,11 @@ export function pushStoryMessage(
 
   const previewSource = message.renderedContent || message.rawContent;
   const preview = previewSource.replace(/\s+/g, " ").trim().slice(0, 64);
-  updateStorySession(message.sessionId, {
-    lastMessageId: message.id,
-    lastMessagePreview: preview,
-    updatedAt: message.createdAt,
-  });
+  const meta = { lastMessageId: message.id, lastMessagePreview: preview, updatedAt: message.createdAt };
+  // sessionId 可能是普通角色会话，也可能是剧情群组；哪个存在就更新哪个。
+  if (!updateStorySession(message.sessionId, meta)) {
+    updateStoryGroup(message.sessionId, meta);
+  }
 
   return message;
 }
@@ -262,27 +347,32 @@ export function loadStoryProjectionEntries(
   characterId: string,
   options?: { afterTimestamp?: string; userName?: string; charName?: string }
 ): StoryProjectionEntry[] {
-  const session = _sessionsCache.find((item) => item.characterId === characterId);
-  if (!session) return [];
-  const messages = loadStoryMessages(session.id);
   const projections: StoryProjectionEntry[] = [];
-
-  for (let i = 0; i < messages.length; i++) {
-    const current = messages[i];
-    if (current.role !== "assistant") continue;
-    if (options?.afterTimestamp && current.createdAt <= options.afterTimestamp) continue;
-
-    if (!current.storySummary) continue;
-    const summaryText = compactProjectionText(current.storySummary, 500);
-    if (!summaryText) continue;
-
-    const ts = formatChatTimestamp(current.createdAt);
-    projections.push({
-      id: `story_projection_${current.id}`,
-      timestamp: current.createdAt,
-      content: `[事件 ${ts}] ${summaryText}`,
-    });
+  // 该角色的剧情事件 = 自己的单人剧情 + 所有把它作为成员的剧情群组（群像里人人平等，都记）
+  const threadIds: string[] = [];
+  const soloSession = _sessionsCache.find((item) => item.characterId === characterId);
+  if (soloSession) threadIds.push(soloSession.id);
+  for (const group of _groupsCache) {
+    if (group.memberIds.includes(characterId)) threadIds.push(group.id);
   }
+  if (threadIds.length === 0) return [];
 
+  for (const threadId of threadIds) {
+    const messages = loadStoryMessages(threadId);
+    for (const current of messages) {
+      if (current.role !== "assistant") continue;
+      if (options?.afterTimestamp && current.createdAt <= options.afterTimestamp) continue;
+      if (!current.storySummary) continue;
+      const summaryText = compactProjectionText(current.storySummary, 500);
+      if (!summaryText) continue;
+      const ts = formatChatTimestamp(current.createdAt);
+      projections.push({
+        id: `story_projection_${current.id}`,
+        timestamp: current.createdAt,
+        content: `[事件 ${ts}] ${summaryText}`,
+      });
+    }
+  }
+  projections.sort((a, b) => (a.timestamp || "").localeCompare(b.timestamp || ""));
   return projections;
 }

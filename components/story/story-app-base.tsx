@@ -41,7 +41,7 @@ import { StoryHtmlRenderer } from "@/components/ui/story-html-renderer";
 import { loadCharacters } from "@/lib/character-storage";
 import { maybeRunSummarization } from "@/lib/memory-summarizer";
 import { incrementEventCounter } from "@/lib/memory-storage";
-import { resolveUserIdentity } from "@/lib/settings-storage";
+import { resolveUserIdentity, loadPresets } from "@/lib/settings-storage";
 import {
   generateStoryCompletion,
   getStoryRenderSignature,
@@ -59,6 +59,12 @@ import {
   type StoryMessage,
   type StorySession,
   updateStorySession,
+  loadStoryGroups,
+  getStoryGroup,
+  createStoryGroup,
+  updateStoryGroup,
+  deleteStoryGroup,
+  type StoryGroup,
 } from "@/lib/story-storage";
 import { SessionCustomCSS } from "@/components/ui/session-custom-css";
 import { STORY_CSS_EXAMPLE } from "@/lib/css-examples";
@@ -275,7 +281,10 @@ export function StoryApp({ onClose }: StoryAppProps) {
   const [, setStorageVersion] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeCharacterId, setActiveCharacterId] = useState<string>("");
+  const [activeGroupId, setActiveGroupId] = useState<string>("");
   const [activeSessionId, setActiveSessionId] = useState<string>("");
+  // 进入 APP 先出选择页（选角色或群组），不直接进入某个会话
+  const [showLauncher, setShowLauncher] = useState(true);
   const [messages, setMessages] = useState<StoryMessage[]>([]);
   const [visibleMessageCount, setVisibleMessageCount] = useState(STORY_INITIAL_LOAD);
   const [composerAppendRequest, setComposerAppendRequest] = useState<StoryComposerAppendRequest | null>(null);
@@ -294,6 +303,12 @@ export function StoryApp({ onClose }: StoryAppProps) {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState("");
   const [cssModalOpen, setCssModalOpen] = useState(false);
+  // 剧情群组新建/编辑弹窗
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState<string>("");
+  const [groupDraftName, setGroupDraftName] = useState("");
+  const [groupDraftMembers, setGroupDraftMembers] = useState<string[]>([]);
+  const [groupDraftPreset, setGroupDraftPreset] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const shellInnerRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(true);
@@ -315,11 +330,21 @@ export function StoryApp({ onClose }: StoryAppProps) {
     [characters, activeCharacterId]
   );
   const sessions = loadStorySessions();
+  const groups = loadStoryGroups();
+  const activeGroup = activeGroupId ? groups.find((g) => g.id === activeGroupId) || null : null;
   const currentSession = useMemo(
-    () => sessions.find((session) => session.id === activeSessionId) || null,
-    [sessions, activeSessionId]
+    () => (activeGroupId ? null : sessions.find((session) => session.id === activeSessionId) || null),
+    [sessions, activeSessionId, activeGroupId]
   );
-  const uiPrefs = currentSession?.uiPrefs || {};
+  // 统一线程：普通角色会话或剧情群组，二选一。承载 foldTags/排除标签/自定义 CSS/主题等。
+  const currentThread = activeGroup
+    ? { id: activeGroup.id, foldTags: activeGroup.foldTags, contextExcludedTags: activeGroup.contextExcludedTags, customCSS: activeGroup.customCSS, uiPrefs: activeGroup.uiPrefs || {}, isGroup: true as const }
+    : currentSession
+      ? { id: currentSession.id, foldTags: currentSession.foldTags, contextExcludedTags: currentSession.contextExcludedTags, customCSS: currentSession.customCSS, uiPrefs: currentSession.uiPrefs || {}, isGroup: false as const }
+      : null;
+  // 群像同场角色（群组成员里除主导外的其余角色）；普通角色会话为空。
+  const participantIds = activeGroup ? activeGroup.memberIds.filter((id) => id !== activeGroup.leadCharacterId) : [];
+  const uiPrefs = currentThread?.uiPrefs || {};
   const isGenerating = Boolean(activeSessionId) && generatingSessionIds.has(activeSessionId);
 
   const markGenerating = useCallback((sessionId: string, on: boolean) => {
@@ -329,6 +354,24 @@ export function StoryApp({ onClose }: StoryAppProps) {
       if (on) next.add(sessionId); else next.delete(sessionId);
       return next;
     });
+  }, []);
+
+  // 群像：参与的每个角色都要记忆——逐个记账 + 触发总结（群像里人人平等，无配角）
+  const runStoryMemoryForIds = useCallback((ids: string[]) => {
+    const uniq = Array.from(new Set(ids.filter(Boolean)));
+    void (async () => {
+      for (const id of uniq) {
+        const c = loadCharacters().find((x) => x.id === id);
+        if (!c) continue;
+        try {
+          incrementEventCounter(id);
+          incrementEventCounter(id);
+          await maybeRunSummarization(id, c.name);
+        } catch (err) {
+          console.warn("[StoryApp] Memory counter/summarization failed:", err);
+        }
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -342,36 +385,160 @@ export function StoryApp({ onClose }: StoryAppProps) {
   }, []);
 
   useEffect(() => {
+    // 进 APP 只做水合，不自动进入任何会话——停在选择页
     hydrateStoryStorage().then(() => {
-      const initialChar = loadCharacters()[0]?.id || "";
-      if (initialChar) {
-        const session = createOrGetStorySession(initialChar);
-        setActiveCharacterId(initialChar);
-        setActiveSessionId(session.id);
-        activeSessionIdRef.current = session.id; // 同步更新，堵住生成完成回调的守卫空窗
-        setVisibleMessageCount(STORY_INITIAL_LOAD);
-        setMessages(loadStoryMessages(session.id));
-        setCustomCssDraft(session.customCSS || "");
-        setFoldTagsDraft(session.foldTags ?? "think,thinking");
-        setContextExcludedTagsDraft(session.contextExcludedTags ?? "think,thinking");
-        setStorageVersion((value) => value + 1);
-      }
       setReady(true);
+      setStorageVersion((value) => value + 1);
     });
   }, []);
 
-  useEffect(() => {
-    if (!activeCharacterId) return;
-    const session = createOrGetStorySession(activeCharacterId);
-    setActiveSessionId(session.id);
-    activeSessionIdRef.current = session.id; // 同步更新，堵住生成完成回调的守卫空窗
+  const loadThreadInto = useCallback((thread: { id: string; customCSS?: string; foldTags?: string; contextExcludedTags?: string }) => {
+    setActiveSessionId(thread.id);
+    activeSessionIdRef.current = thread.id; // 同步更新，堵住生成完成回调的守卫空窗
     setVisibleMessageCount(STORY_INITIAL_LOAD);
-    setMessages(loadStoryMessages(session.id));
-    setCustomCssDraft(session.customCSS || "");
-    setFoldTagsDraft(session.foldTags ?? "think,thinking");
-    setContextExcludedTagsDraft(session.contextExcludedTags ?? "think,thinking");
+    setMessages(loadStoryMessages(thread.id));
+    setCustomCssDraft(thread.customCSS || "");
+    setFoldTagsDraft(thread.foldTags ?? "think,thinking");
+    setContextExcludedTagsDraft(thread.contextExcludedTags ?? "think,thinking");
     setStorageVersion((value) => value + 1);
-  }, [activeCharacterId]);
+  }, []);
+
+  const openCharacter = useCallback((charId: string) => {
+    if (!charId) return;
+    const session = createOrGetStorySession(charId);
+    setActiveGroupId("");
+    setActiveCharacterId(charId);
+    loadThreadInto(session);
+    setShowLauncher(false);
+    setDrawerOpen(false);
+  }, [loadThreadInto]);
+
+  const openGroup = useCallback((groupId: string) => {
+    const group = getStoryGroup(groupId);
+    if (!group || group.memberIds.length === 0) return;
+    setActiveGroupId(group.id);
+    setActiveCharacterId(group.leadCharacterId || group.memberIds[0]);
+    loadThreadInto(group);
+    setShowLauncher(false);
+    setDrawerOpen(false);
+  }, [loadThreadInto]);
+
+  const backToLauncher = useCallback(() => {
+    setShowLauncher(true);
+    setDrawerOpen(false);
+    setActiveGroupId("");
+    setActiveSessionId("");
+    activeSessionIdRef.current = "";
+    setMessages([]);
+    setStorageVersion((value) => value + 1);
+  }, []);
+
+  const openGroupModal = useCallback((groupId?: string) => {
+    if (groupId) {
+      const g = getStoryGroup(groupId);
+      if (!g) return;
+      setEditingGroupId(g.id);
+      setGroupDraftName(g.name);
+      setGroupDraftMembers(g.memberIds);
+      setGroupDraftPreset(g.presetId || "");
+    } else {
+      setEditingGroupId("");
+      setGroupDraftName("");
+      setGroupDraftMembers([]);
+      setGroupDraftPreset("");
+    }
+    setGroupModalOpen(true);
+  }, []);
+
+  const saveGroupDraft = useCallback(() => {
+    const members = groupDraftMembers.filter(Boolean);
+    if (members.length < 2) { alert("剧情群组至少需要 2 个角色。"); return; }
+    const name = groupDraftName.trim() || "剧情群组";
+    if (editingGroupId) {
+      updateStoryGroup(editingGroupId, { name, memberIds: members, presetId: groupDraftPreset || undefined, leadCharacterId: members[0] });
+    } else {
+      createStoryGroup({ name, memberIds: members, presetId: groupDraftPreset || undefined });
+    }
+    setGroupModalOpen(false);
+    setStorageVersion((value) => value + 1);
+  }, [editingGroupId, groupDraftName, groupDraftMembers, groupDraftPreset]);
+
+  const removeEditingGroup = useCallback(() => {
+    if (!editingGroupId) return;
+    if (!confirm("删除这个剧情群组？群组的剧情记录会一并删除，角色本身不受影响。")) return;
+    deleteStoryGroup(editingGroupId);
+    setGroupModalOpen(false);
+    if (activeGroupId === editingGroupId) backToLauncher();
+    setStorageVersion((value) => value + 1);
+  }, [editingGroupId, activeGroupId, backToLauncher]);
+
+  function renderGroupModal() {
+    const toggleMember = (id: string) => {
+      setGroupDraftMembers((prev) => (
+        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      ));
+    };
+    return (
+      <div className="story-modal-overlay" onClick={() => setGroupModalOpen(false)}>
+        <div className="story-group-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="story-group-modal-title">{editingGroupId ? "编辑剧情群组" : "新建剧情群组"}</div>
+
+          <label className="story-group-modal-label">群组名称</label>
+          <input
+            className="story-group-modal-input"
+            value={groupDraftName}
+            onChange={(e) => setGroupDraftName(e.target.value)}
+            placeholder="例如：茶会四人组"
+          />
+
+          <label className="story-group-modal-label">成员（至少 2 位，全部平等同场）</label>
+          <div className="story-group-modal-members">
+            {characters.map((c) => {
+              const selected = groupDraftMembers.includes(c.id);
+              return (
+                <button
+                  key={c.id}
+                  className="story-group-modal-member"
+                  data-active={selected ? "true" : undefined}
+                  onClick={() => toggleMember(c.id)}
+                >
+                  <Avatar src={c.avatar || undefined} name={c.name} size="md" />
+                  <span>{c.name}{selected ? " ✓" : ""}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <label className="story-group-modal-label">预设（从设置里已加好的预设直接选，全员共用这一套）</label>
+          <div className="story-group-modal-lead">
+            <button
+              className="story-group-modal-lead-chip"
+              data-active={!groupDraftPreset ? "true" : undefined}
+              onClick={() => setGroupDraftPreset("")}
+            >跟随默认</button>
+            {loadPresets().map((p) => (
+              <button
+                key={p.id}
+                className="story-group-modal-lead-chip"
+                data-active={groupDraftPreset === p.id ? "true" : undefined}
+                onClick={() => setGroupDraftPreset(p.id)}
+              >{p.name}</button>
+            ))}
+          </div>
+
+          <div className="story-group-modal-actions">
+            {editingGroupId ? (
+              <button className="story-group-modal-btn story-group-modal-danger" onClick={removeEditingGroup}>删除</button>
+            ) : <span />}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="story-group-modal-btn" onClick={() => setGroupModalOpen(false)}>取消</button>
+              <button className="story-group-modal-btn story-group-modal-primary" onClick={saveGroupDraft}>保存</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Listen for live CSS updates from 小卷
   useEffect(() => {
@@ -527,7 +694,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
   }, [activeSessionId]);
 
   useEffect(() => {
-    if (!ready || !activeCharacterId || !currentSession || isGenerating) return;
+    if (!ready || !activeCharacterId || !currentThread || isGenerating) return;
 
     const activeAssistantMessages = messages.filter((message) => message.role === "assistant");
     if (activeAssistantMessages.length === 0) return;
@@ -548,7 +715,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
     ));
     if (!hasStaleMessage) return;
 
-    const refreshKey = `${activeCharacterId}:${currentSession.id}`;
+    const refreshKey = `${activeCharacterId}:${currentThread.id}`;
     if (cacheRefreshKeyRef.current === refreshKey) return;
     cacheRefreshKeyRef.current = refreshKey;
 
@@ -560,13 +727,13 @@ export function StoryApp({ onClose }: StoryAppProps) {
       if (cancelled) return;
       let rebuilt: StoryMessage[];
       try {
-        rebuilt = rebuildStorySessionRenderCache(activeCharacterId, currentSession.id, { sessionFoldTags: currentSession.foldTags });
+        rebuilt = rebuildStorySessionRenderCache(activeCharacterId, currentThread.id, { sessionFoldTags: currentThread.foldTags });
       } catch {
         if (cacheRefreshKeyRef.current === refreshKey) cacheRefreshKeyRef.current = null;
         return;
       }
       if (cancelled) return;
-      if (activeSessionIdRef.current === currentSession.id) {
+      if (activeSessionIdRef.current === currentThread.id) {
         setMessages(rebuilt);
       }
       setStorageVersion((value) => value + 1);
@@ -596,11 +763,14 @@ export function StoryApp({ onClose }: StoryAppProps) {
     // 依赖用 id/foldTags 原始值而不是 session 对象：会话缓存归一化会更换对象
     // 引用，按对象依赖会让本 effect 在无关渲染中反复重跑
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, activeCharacterId, currentSession?.id, currentSession?.foldTags, messages, isGenerating]);
+  }, [ready, activeCharacterId, currentThread?.id, currentThread?.foldTags, messages, isGenerating]);
 
-  function applySessionUpdates(updates: Partial<StorySession>) {
-    if (!currentSession) return;
-    const next = updateStorySession(currentSession.id, updates);
+  function applySessionUpdates(updates: Partial<StorySession> & Partial<StoryGroup>) {
+    if (!currentThread) return;
+    // 群组走群组存储，普通会话走会话存储
+    const next = activeGroupId
+      ? updateStoryGroup(currentThread.id, updates)
+      : updateStorySession(currentThread.id, updates);
     if (!next) return;
     setCustomCssDraft(next.customCSS || "");
     setFoldTagsDraft(next.foldTags ?? "think,thinking");
@@ -630,9 +800,11 @@ export function StoryApp({ onClose }: StoryAppProps) {
     try {
       const historyForGeneration = loadStoryMessages(sessionId);
       const result = await generateStoryCompletion(characterId, historyForGeneration, {
-        sessionFoldTags: currentSession?.foldTags,
-        sessionContextExcludedTags: currentSession?.contextExcludedTags,
+        sessionFoldTags: currentThread?.foldTags,
+        sessionContextExcludedTags: currentThread?.contextExcludedTags,
         signal: generationRun.controller.signal,
+        participantIds,
+        presetId: activeGroup?.presetId,
       });
       if (!isCurrentGeneration()) return;
       const assistantMessage = pushStoryMessage({
@@ -649,18 +821,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
       }
       setStorageVersion((value) => value + 1);
 
-      const storyCharacter = characters.find((character) => character.id === characterId);
-      if (storyCharacter) {
-        void (async () => {
-          try {
-            incrementEventCounter(characterId);
-            incrementEventCounter(characterId);
-            await maybeRunSummarization(characterId, storyCharacter.name);
-          } catch (err) {
-            console.warn("[StoryApp] Memory counter/summarization failed:", err);
-          }
-        })();
-      }
+      runStoryMemoryForIds([characterId, ...participantIds]);
     } catch (error) {
       if (!isCurrentGeneration() || isAbortLikeError(error)) return;
       const errText = error instanceof Error ? error.message : "剧情生成失败，请稍后再试。";
@@ -837,9 +998,11 @@ export function StoryApp({ onClose }: StoryAppProps) {
     const isCurrentGeneration = () => mountedRef.current && isStoryGenerationRunActive(sessionId, generationRunId);
     try {
       const result = await generateStoryCompletion(characterId, contextMessages, {
-        sessionFoldTags: currentSession?.foldTags,
-        sessionContextExcludedTags: currentSession?.contextExcludedTags,
+        sessionFoldTags: currentThread?.foldTags,
+        sessionContextExcludedTags: currentThread?.contextExcludedTags,
         signal: generationRun.controller.signal,
+        participantIds,
+        presetId: activeGroup?.presetId,
       });
       if (!isCurrentGeneration()) return;
       const assistantMessage = pushStoryMessage({
@@ -849,6 +1012,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
       });
       if (activeSessionIdRef.current === sessionId) setMessages(loadStoryMessages(sessionId));
       setStorageVersion(v => v + 1);
+      runStoryMemoryForIds([characterId, ...participantIds]);
     } catch (error) {
       if (!isCurrentGeneration() || isAbortLikeError(error)) return;
       const errText = error instanceof Error ? error.message : "重试失败，请稍后再试。";
@@ -900,13 +1064,94 @@ export function StoryApp({ onClose }: StoryAppProps) {
     );
   }
 
-  if (!currentCharacter || !currentSession) return null;
+  // 选择页：进 APP 先选角色或群组，不直接进会话
+  if (showLauncher || !currentThread || !currentCharacter) {
+    return (
+      <div className="story-app-shell story-launcher" data-story-theme="mono">
+        <div className="story-shell-inner">
+          <div className="story-header">
+            <div className="story-header-safe-area" />
+            <div className="story-header-content">
+              <div className="story-header-left">
+                <button className="story-top-btn" onClick={onClose} aria-label="关闭剧情模式">
+                  <SolidBackIcon size={16} />
+                </button>
+              </div>
+              <div className="story-header-center">Story</div>
+              <div className="story-header-right" />
+            </div>
+          </div>
 
-  const sessionScope = `.story-session-${currentSession.id}`;
+          <div className="story-launcher-body">
+            <section className="story-launcher-section">
+              <div className="story-launcher-eyebrow">
+                <span>剧情群组</span>
+                <button className="story-launcher-new" onClick={() => openGroupModal()}>+ 新建群组</button>
+              </div>
+              {groups.length === 0 ? (
+                <div className="story-launcher-hint">还没有群组。新建一个，把几个角色放进同一场群像剧情。</div>
+              ) : (
+                <div className="story-launcher-groups">
+                  {groups.map((g) => {
+                    const members = g.memberIds.map((id) => characters.find((c) => c.id === id)).filter(Boolean) as typeof characters;
+                    return (
+                      <button key={g.id} className="story-launcher-group" onClick={() => openGroup(g.id)}>
+                        <div className="story-launcher-group-avatars">
+                          {members.slice(0, 4).map((c, i) => (
+                            <div key={c.id} className="story-launcher-ava" style={{ marginLeft: i === 0 ? 0 : -10, zIndex: 10 - i }}>
+                              {c.avatar ? <img src={c.avatar} alt="" /> : <span>{c.name.trim().charAt(0) || "书"}</span>}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="story-launcher-group-body">
+                          <div className="story-launcher-group-name">{g.name}</div>
+                          <div className="story-launcher-group-sub">{members.length} 位角色 · {members.map((c) => c.name).join("、")}</div>
+                        </div>
+                        <span
+                          className="story-launcher-group-edit"
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => { e.stopPropagation(); openGroupModal(g.id); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); openGroupModal(g.id); } }}
+                        >编辑</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            <section className="story-launcher-section">
+              <div className="story-launcher-eyebrow"><span>单个角色</span></div>
+              <div className="story-launcher-chars">
+                {characters.map((character) => (
+                  <button key={character.id} className="story-launcher-char" onClick={() => openCharacter(character.id)}>
+                    <Avatar src={character.avatar || undefined} name={character.name} size="lg" />
+                    <span className="story-launcher-char-name">{character.name}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </div>
+        </div>
+
+        {groupModalOpen ? renderGroupModal() : null}
+      </div>
+    );
+  }
+
+  const sessionScope = `.story-session-${currentThread.id}`;
+
+  // 群像：本群组同场角色（全体平等主角，含主导角色）。空=普通单人剧情。
+  const ensembleCast = participantIds
+    .map((id) => characters.find((c) => c.id === id))
+    .filter(Boolean) as typeof characters;
+  const isEnsemble = ensembleCast.length > 0;
+  const rosterChars = isEnsemble ? [currentCharacter, ...ensembleCast] : [currentCharacter];
 
   return (
     <div
-      className={`story-app-shell story-session-${currentSession.id}`}
+      className={`story-app-shell story-session-${currentThread.id}`}
       data-story-theme={uiPrefs.theme || "paper"}
       onTouchStart={(event) => handleTouchStart(event.touches[0]?.clientX || 0)}
       onTouchMove={(event) => handleTouchMove(event.touches[0]?.clientX || 0)}
@@ -919,30 +1164,26 @@ export function StoryApp({ onClose }: StoryAppProps) {
       onMouseLeave={handleTouchEnd}
     >
       {/* Styles moved to styles/story.css */}
-      {currentSession.customCSS ? (
-        <SessionCustomCSS css={currentSession.customCSS} scope={sessionScope} />
+      {currentThread.customCSS ? (
+        <SessionCustomCSS css={currentThread.customCSS} scope={sessionScope} />
       ) : null}
 
       {drawerOpen ? <div className="story-drawer-overlay" onClick={() => setDrawerOpen(false)} /> : null}
       <aside className="story-drawer" style={{ transform: drawerOpen ? "translateX(0)" : "translateX(106%)", transition: "transform 220ms ease" }}>
         <div className="story-drawer-section">
-          <div className="story-drawer-eyebrow">剧情角色</div>
-          <div className="story-character-list">
-            {characters.map((character) => (
-              <button
-                key={character.id}
-                className="story-character-chip"
-                data-active={character.id === activeCharacterId ? "true" : undefined}
-                onClick={() => {
-                  setActiveCharacterId(character.id);
-                  setDrawerOpen(false);
-                }}
-              >
-                <Avatar src={character.avatar || undefined} name={character.name} size="lg" />
-                <span className="story-character-name">{character.name}</span>
-              </button>
-            ))}
+          <button className="story-tool-btn" onClick={backToLauncher}>← 返回选择角色 / 群组</button>
+          <div style={{ marginTop: 10, fontSize: "calc(12px*var(--app-text-scale,1))", color: "var(--c-story-sub, rgba(95, 82, 61, 0.72))" }}>
+            {activeGroupId
+              ? `当前群像：${rosterChars.map((c) => c.name).join("、")}`
+              : `当前剧情：${currentCharacter.name}`}
           </div>
+          {activeGroupId ? (
+            <button
+              className="story-tool-btn"
+              style={{ marginTop: 8 }}
+              onClick={() => openGroupModal(activeGroupId)}
+            >编辑这个群组</button>
+          ) : null}
         </div>
 
         <div className="story-drawer-section">
@@ -1001,7 +1242,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
             className="story-tool-btn"
             onClick={() => {
               try {
-                const rebuilt = rebuildStorySessionRenderCache(activeCharacterId, currentSession.id, { sessionFoldTags: currentSession.foldTags });
+                const rebuilt = rebuildStorySessionRenderCache(activeCharacterId, currentThread.id, { sessionFoldTags: currentThread.foldTags });
                 setMessages(rebuilt);
                 setStorageVersion((value) => value + 1);
                 alert(`缓存重建完成，${rebuilt.length} 条消息已更新`);
@@ -1051,38 +1292,50 @@ export function StoryApp({ onClose }: StoryAppProps) {
           <div className="story-stage-inner">
             
             {/* ====== 顶部信息阅读卡片 ====== */}
-            <div className="story-meta">
-              <div className="story-meta-layout">
-                <div className="story-meta-cover">
-                  {currentCharacter.avatar ? (
-                    <img src={currentCharacter.avatar} alt="cover" />
-                  ) : (
-                    <div className="story-meta-cover-fallback" aria-hidden="true">
-                      <span className="story-meta-cover-char">{currentCharacter.name.trim().charAt(0) || "书"}</span>
-                      <span className="story-meta-cover-line" />
-                      <span className="story-meta-cover-sub">STORY</span>
+            {isEnsemble ? (
+              /* 群像：极简题头——叠放头像 + 一行小字，不列名字，避免多人名换行 */
+              <div className="story-meta story-meta-ensemble">
+                <div className="story-meta-ava-stack">
+                  {rosterChars.slice(0, 6).map((c, i) => (
+                    <div key={c.id} className="story-meta-ava" style={{ marginLeft: i === 0 ? 0 : -12, zIndex: 10 - i }}>
+                      {c.avatar ? <img src={c.avatar} alt="" /> : <span>{c.name.trim().charAt(0) || "书"}</span>}
                     </div>
-                  )}
+                  ))}
+                  {rosterChars.length > 6 ? (
+                    <div className="story-meta-ava story-meta-ava-more" style={{ marginLeft: -12, zIndex: 3 }}>+{rosterChars.length - 6}</div>
+                  ) : null}
                 </div>
-                <div className="story-meta-body">
-                  <div className="story-meta-title">本次阅读：《 {currentCharacter.name} 》</div>
-                  <div className="story-meta-tags">
-                    {userIdentity?.name || "我"} x {currentCharacter.name}
+                <div className="story-meta-ensemble-label">群像 · {rosterChars.length} 位角色同场</div>
+              </div>
+            ) : (
+              <div className="story-meta">
+                <div className="story-meta-layout">
+                  <div className="story-meta-cover">
+                    {currentCharacter.avatar ? (
+                      <img src={currentCharacter.avatar} alt="cover" />
+                    ) : (
+                      <div className="story-meta-cover-fallback" aria-hidden="true">
+                        <span className="story-meta-cover-char">{currentCharacter.name.trim().charAt(0) || "书"}</span>
+                        <span className="story-meta-cover-line" />
+                        <span className="story-meta-cover-sub">STORY</span>
+                      </div>
+                    )}
                   </div>
-                  <div className="story-meta-desc">
-                    {/* Character type might not have description, so we use a stylized default text */}
-                    “有些故事，在开始之前就已经写好了结局。”
+                  <div className="story-meta-body">
+                    <div className="story-meta-title">本次阅读：《 {currentCharacter.name} 》</div>
+                    <div className="story-meta-tags">{userIdentity?.name || "我"} x {currentCharacter.name}</div>
+                    <div className="story-meta-desc">“有些故事，在开始之前就已经写好了结局。”</div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {messages.length === 0 ? (
               <div className="story-empty">
                 <BookOpenIcon width={28} height={28} opacity={0.45} />
                 <div>
-                  <div className="text-[calc(14px*var(--app-text-scale,1))] font-medium text-[var(--c-story-heading,#1e293b)] mb-1">故事从这里开始</div>
-                  <div className="text-[calc(12px*var(--app-text-scale,1))] opacity-70">从底部输入一段引导，剧情会继续展开。</div>
+                  <div className="text-[calc(14px*var(--app-text-scale,1))] font-medium text-[var(--c-story-heading,#1e293b)] mb-1">{isEnsemble ? "群像故事从这里开始" : "故事从这里开始"}</div>
+                  <div className="text-[calc(12px*var(--app-text-scale,1))] opacity-70">{isEnsemble ? `${rosterChars.length} 位角色同场。从底部输入一段引导，故事会同时展开他们几个。` : "从底部输入一段引导，剧情会继续展开。"}</div>
                 </div>
               </div>
             ) : (
@@ -1339,6 +1592,8 @@ export function StoryApp({ onClose }: StoryAppProps) {
           </div>
         </div>
       )}
+
+      {groupModalOpen ? renderGroupModal() : null}
     </div>
   );
 }
