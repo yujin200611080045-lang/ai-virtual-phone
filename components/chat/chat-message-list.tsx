@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useState, useEffect, useSyncExternalStore } from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Check } from "lucide-react";
 import { loadChatSessions, loadChatContacts, ChatSession, createOrGetSession, createGroupSession, pushChatMessage, addChatContact, loadChatMessages, getLastVisibleSessionMessage, getChatMessagePreview } from "@/lib/chat-storage";
 import { loadCharacters } from "@/lib/character-storage";
 import { Character } from "@/lib/character-types";
-import { resolveUserIdentity } from "@/lib/settings-storage";
+import { resolveUserIdentity, loadUserIdentities } from "@/lib/settings-storage";
 import type { UserIdentity } from "@/components/settings/user-identity";
+import { getActivePersonaId, setActivePersonaId, subscribeActivePersona, characterInActivePersona } from "@/lib/active-persona";
 import { PENDING_REPLY_PREFIX } from "@/lib/friend-request-engine";
 import { clearRequestsForCharacter, dispatchFriendRequestUpdated } from "@/lib/friend-request-storage";
 import { UserProfilePanel } from "./user-profile-panel";
@@ -76,12 +77,33 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
     const [showContactPicker, setShowContactPicker] = useState(false);
     const [showGroupCreate, setShowGroupCreate] = useState(false);
     const [identity, setIdentity] = useState<UserIdentity | null>(null);
+    // 当前人设（分身视图）：null=全部
+    const [activePersonaId, setActivePersonaIdState] = useState<string | null>(null);
+    const [showPersonaMenu, setShowPersonaMenu] = useState(false);
+    const personaMenuRef = React.useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!showPersonaMenu) return;
+        const handler = (e: PointerEvent) => {
+            if (personaMenuRef.current && !personaMenuRef.current.contains(e.target as Node)) setShowPersonaMenu(false);
+        };
+        document.addEventListener("pointerdown", handler);
+        return () => document.removeEventListener("pointerdown", handler);
+    }, [showPersonaMenu]);
     const mascotSettings = useSyncExternalStore(subscribeMascotSettings, getMascotSettingsSnapshot, getMascotSettingsSnapshot);
     const mascotChat = useSyncExternalStore(subscribeMascotChat, getMascotChatSnapshot, getMascotChatSnapshot);
     const [mascotAvatarUrl, setMascotAvatarUrl] = useState(mascotSettings.avatarImage || DEFAULT_MASCOT_AVATAR);
 
     useEffect(() => {
-        setIdentity(resolveUserIdentity());
+        const sync = () => {
+            const ap = getActivePersonaId();
+            setActivePersonaIdState(ap);
+            const disp = ap ? (loadUserIdentities().find(i => i.id === ap) ?? resolveUserIdentity()) : resolveUserIdentity();
+            setIdentity(disp);
+            // 人设变化时刷新会话列表（顶部当前列表随即按人设过滤）
+            setSessions(loadChatSessions());
+        };
+        sync();
+        return subscribeActivePersona(sync);
     }, []);
 
     useEffect(() => {
@@ -120,21 +142,54 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
                         <button className="page-back-btn shrink-0 mr-2" type="button" onClick={onCloseApp} aria-label="返回">
                             <ChevronLeft size={24} strokeWidth={1.5} />
                         </button>
-                        <div className="flex items-center gap-[10px]">
-                            <div className="w-[36px] h-[36px] rounded-full overflow-hidden bg-[var(--c-input)] flex items-center justify-center shrink-0">
-                                {identity?.avatarUrl ? (
-                                    <img src={identity.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                                ) : (
-                                    <ChatFallbackAvatar />
-                                )}
-                            </div>
-                            <div className="flex flex-col whitespace-nowrap">
-                                <span className="ts-16 font-bold text-[var(--c-text-title)] leading-tight">{identity?.name || "用户"}</span>
-                                <div className="flex items-center gap-1 mt-1">
-                                    <span className="w-[8px] h-[8px] rounded-full bg-[#2dd36f]"></span>
-                                    <span className="ts-10 text-[var(--c-icon)] font-medium">在线</span>
+                        <div className="relative" ref={personaMenuRef}>
+                            <button type="button" className="flex items-center gap-[10px]" onClick={() => setShowPersonaMenu(v => !v)} aria-label="切换用户人设">
+                                <div className="w-[36px] h-[36px] rounded-full overflow-hidden bg-[var(--c-input)] flex items-center justify-center shrink-0">
+                                    {identity?.avatarUrl ? (
+                                        <img src={identity.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <ChatFallbackAvatar />
+                                    )}
                                 </div>
-                            </div>
+                                <div className="flex flex-col whitespace-nowrap text-left">
+                                    <span className="ts-16 font-bold text-[var(--c-text-title)] leading-tight flex items-center gap-1">
+                                        {identity?.name || "用户"}
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}><path d="M6 9l6 6 6-6" /></svg>
+                                    </span>
+                                    <div className="flex items-center gap-1 mt-1">
+                                        <span className="w-[8px] h-[8px] rounded-full bg-[#2dd36f]"></span>
+                                        <span className="ts-10 text-[var(--c-icon)] font-medium">{activePersonaId ? "分身视图" : "在线"}</span>
+                                    </div>
+                                </div>
+                            </button>
+                            {showPersonaMenu && (
+                                <div className="g-dropdown absolute top-[46px] left-0 py-2 px-0 w-[190px] z-[120]">
+                                    <button
+                                        type="button"
+                                        className="menu-item"
+                                        onClick={() => { setActivePersonaId(null); setShowPersonaMenu(false); }}
+                                    >
+                                        <div className="menu-label-group"><span className="menu-label">全部（不分人设）</span></div>
+                                        {!activePersonaId && <Check size={16} />}
+                                    </button>
+                                    {loadUserIdentities().map(idn => (
+                                        <button
+                                            key={idn.id}
+                                            type="button"
+                                            className="menu-item"
+                                            onClick={() => { setActivePersonaId(idn.id); setShowPersonaMenu(false); }}
+                                        >
+                                            <div className="w-[26px] h-[26px] rounded-full overflow-hidden bg-[var(--c-input)] flex items-center justify-center shrink-0 mr-1">
+                                                {idn.avatarUrl ? <img src={idn.avatarUrl} className="w-full h-full object-cover" alt="" /> : <ChatFallbackAvatar />}
+                                            </div>
+                                            <div className="menu-label-group" style={{ minWidth: 0 }}>
+                                                <span className="menu-label" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{idn.name || "未命名"}</span>
+                                            </div>
+                                            {activePersonaId === idn.id && <Check size={16} />}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                 }
@@ -222,6 +277,8 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
                             const regularItems = [...sessions]
                             .filter(s => {
                                 if (!(s.isGroup || contactIds.has(s.contactId))) return false;
+                                // 当前人设（分身视图）过滤：只显示绑定了该人设的角色；群聊始终显示
+                                if (!s.isGroup && !characterInActivePersona(s.contactId)) return false;
                                 if (!getLastVisibleSessionMessage(s.id)) return false;
                                 if (listTab === "private" && s.isGroup) return false;
                                 if (listTab === "group" && !s.isGroup) return false;

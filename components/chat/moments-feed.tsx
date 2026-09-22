@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useLayoutEffect, useRef } from "react
 import { getAllPosts, deleteMomentPost, getUnreadMomentsNotifications, saveMomentsLastSeen, addMomentComment } from "@/lib/moments-storage";
 import { loadChatContacts } from "@/lib/chat-storage";
 import { resolveUserIdentity } from "@/lib/settings-storage";
+import { characterInActivePersona, subscribeActivePersona } from "@/lib/active-persona";
 import { saveChatImageToIndexedDB, getChatImageFromIndexedDB } from "@/lib/chat-asset-storage";
 import type { MomentComment, MomentPost } from "@/lib/moments-types";
 import { MomentPostCard } from "./moment-post-card";
@@ -99,7 +100,8 @@ export function MomentsFeed({ onCloseApp }: MomentsFeedProps) {
     useEffect(() => stopLoadMoreAnchorTracking, [stopLoadMoreAnchorTracking]);
 
     const refreshPosts = useCallback(() => {
-        const contactIds = new Set(loadChatContacts().map(c => c.characterId));
+        // 只显示当前人设（分身视图）名下角色的动态；用户自己的动态始终显示
+        const contactIds = new Set(loadChatContacts().map(c => c.characterId).filter(id => characterInActivePersona(id)));
         setPosts(getAllPosts().filter(p => p.authorType === "user" || contactIds.has(p.authorId)));
         setUnreadNotifs(getUnreadMomentsNotifications());
     }, []);
@@ -292,6 +294,7 @@ export function MomentsFeed({ onCloseApp }: MomentsFeedProps) {
 
         const handler = () => refreshPosts();
         window.addEventListener("moments-updated", handler);
+        const unsubPersona = subscribeActivePersona(refreshPosts);
 
         const photoFailureHandler = (event: Event) => {
             const reason = (event as CustomEvent<{ message?: string }>).detail?.message;
@@ -310,6 +313,7 @@ export function MomentsFeed({ onCloseApp }: MomentsFeedProps) {
         return () => {
             window.removeEventListener("moments-updated", handler);
             window.removeEventListener(MOMENT_PHOTO_GENERATION_FAILED_EVENT, photoFailureHandler);
+            unsubPersona();
         };
     }, [refreshPosts]);
 

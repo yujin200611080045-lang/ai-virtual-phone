@@ -7,7 +7,9 @@ import {
     saveFollowUpConfig,
     getDefaultFollowUpConfig,
     resolveUserIdentity,
+    loadUserIdentities,
 } from "@/lib/settings-storage";
+import { getActivePersonaId, subscribeActivePersona } from "@/lib/active-persona";
 import { loadChatAppSettings, saveChatAppSettings } from "@/lib/chat-storage";
 import type { UserIdentity } from "@/components/settings/user-identity";
 import { getApiLogs, clearApiLogs, type DebugInfo } from "@/lib/chat-engine";
@@ -171,8 +173,17 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
         };
     });
 
+    // 主页跟随「当前人设」（分身视图）切换
     useEffect(() => {
-        setIdentity(resolveUserIdentity());
+        return subscribeActivePersona(() => {
+            const ap = getActivePersonaId();
+            setIdentity(ap ? (loadUserIdentities().find(i => i.id === ap) ?? resolveUserIdentity()) : resolveUserIdentity());
+        });
+    }, []);
+
+    useEffect(() => {
+        const ap0 = getActivePersonaId();
+        setIdentity(ap0 ? (loadUserIdentities().find(i => i.id === ap0) ?? resolveUserIdentity()) : resolveUserIdentity());
         const settings = loadChatAppSettings();
         const browserGranted = isBrowserNotificationGranted();
         setNotifEnabled(settings.browserNotificationsEnabled === true && browserGranted);

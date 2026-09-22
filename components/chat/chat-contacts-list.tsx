@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, useDeferredValue, useSyncExternalStore } from "react";
 import { loadChatContacts, ChatContact, createOrGetSession, ChatSession, addChatContact, pushChatMessage, loadChatMessages } from "@/lib/chat-storage";
 import { resolveUserIdentity } from "@/lib/settings-storage";
+import { characterInActivePersona, subscribeActivePersona } from "@/lib/active-persona";
 import { PENDING_REPLY_PREFIX } from "@/lib/friend-request-engine";
 import { loadCharacters } from "@/lib/character-storage";
 import { Character } from "@/lib/character-types";
@@ -105,7 +106,7 @@ export function ChatContactsList({ onCloseApp, onSelectSession, onSelectMascot, 
         const enriched = rawContacts.map(c => ({
             ...c,
             char: chars.find(ch => ch.id === c.characterId)
-        })).filter(c => c.char);
+        })).filter(c => c.char && characterInActivePersona(c.characterId));
         enriched.sort((a, b) => (a.char?.name || "").localeCompare(b.char?.name || ""));
         setContacts(enriched);
 
@@ -124,7 +125,8 @@ export function ChatContactsList({ onCloseApp, onSelectSession, onSelectMascot, 
         refresh();
         const handler = () => refresh();
         window.addEventListener("friend-requests-updated", handler);
-        return () => window.removeEventListener("friend-requests-updated", handler);
+        const unsub = subscribeActivePersona(refresh);
+        return () => { window.removeEventListener("friend-requests-updated", handler); unsub(); };
     }, [refresh]);
 
     /** Group contacts by pinyin initial */
