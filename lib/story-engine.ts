@@ -70,7 +70,7 @@ function toHistoryMessage(message: StoryMessage, contextExcludedTags?: string): 
   };
 }
 
-function resolveStoryConfigs(characterId: string, participantIds: string[] = []): {
+function resolveStoryConfigs(characterId: string, participantIds: string[] = [], presetOverrideId?: string): {
   apiConfig: ApiConfig;
   preset: PresetConfig | null;
   regexes: RegexConfig[];
@@ -95,7 +95,10 @@ function resolveStoryConfigs(characterId: string, participantIds: string[] = [])
   }
 
   const presets = loadPresets();
-  let preset = activeSlot.presetId ? presets.find((item) => item.id === activeSlot.presetId) || null : null;
+  // 群像组可直接选预设（presetOverrideId）；否则跟随该角色「剧情」绑定的预设。
+  let preset = presetOverrideId
+    ? presets.find((item) => item.id === presetOverrideId) || null
+    : (activeSlot.presetId ? presets.find((item) => item.id === activeSlot.presetId) || null : null);
   if (!preset) {
     preset = presets.find((item) => item.builtIn) ?? null;
   }
@@ -146,7 +149,7 @@ export function getStoryRenderSignature(characterId: string): { regexSignature: 
 export async function generateStoryCompletion(
   characterId: string,
   history: StoryMessage[],
-  options?: { sessionFoldTags?: string; sessionContextExcludedTags?: string; signal?: AbortSignal; participantIds?: string[] },
+  options?: { sessionFoldTags?: string; sessionContextExcludedTags?: string; signal?: AbortSignal; participantIds?: string[]; presetId?: string },
 ): Promise<StoryGenerationResult> {
   const character = loadCharacters().find((item) => item.id === characterId);
   if (!character) {
@@ -154,7 +157,7 @@ export async function generateStoryCompletion(
   }
 
   const participantIds = options?.participantIds ?? [];
-  const { apiConfig, preset, regexes, worldBooks, regexSignature, summaryTag } = resolveStoryConfigs(characterId, participantIds);
+  const { apiConfig, preset, regexes, worldBooks, regexSignature, summaryTag } = resolveStoryConfigs(characterId, participantIds, options?.presetId);
   const effectiveFoldTags = options?.sessionFoldTags?.trim() || DEFAULT_STORY_FOLD_TAGS;
   const effectiveContextExcludedTags = options?.sessionContextExcludedTags?.trim() || DEFAULT_STORY_CONTEXT_EXCLUDED_TAGS;
   const llmMessages = await buildStoryPromptMessages(characterId, history, preset, regexes, worldBooks, effectiveContextExcludedTags, participantIds);
@@ -292,14 +295,14 @@ async function buildStoryPromptMessages(
 export async function previewStoryPromptPayload(
   characterId: string,
   history: StoryMessage[],
-  options?: { sessionContextExcludedTags?: string; participantIds?: string[] },
+  options?: { sessionContextExcludedTags?: string; participantIds?: string[]; presetId?: string },
 ): Promise<StoryPreviewResult> {
   const character = loadCharacters().find((item) => item.id === characterId);
   if (!character) {
     throw new ChatEngineError(`Character not found: ${characterId}`);
   }
   const participantIds = options?.participantIds ?? [];
-  const { apiConfig, preset, regexes, worldBooks } = resolveStoryConfigs(characterId, participantIds);
+  const { apiConfig, preset, regexes, worldBooks } = resolveStoryConfigs(characterId, participantIds, options?.presetId);
   const effectiveContextExcludedTags = options?.sessionContextExcludedTags?.trim() || DEFAULT_STORY_CONTEXT_EXCLUDED_TAGS;
   const llmMessages = await buildStoryPromptMessages(characterId, history, preset, regexes, worldBooks, effectiveContextExcludedTags, participantIds);
   return {

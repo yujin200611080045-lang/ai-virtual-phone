@@ -41,7 +41,7 @@ import { StoryHtmlRenderer } from "@/components/ui/story-html-renderer";
 import { loadCharacters } from "@/lib/character-storage";
 import { maybeRunSummarization } from "@/lib/memory-summarizer";
 import { incrementEventCounter } from "@/lib/memory-storage";
-import { resolveUserIdentity } from "@/lib/settings-storage";
+import { resolveUserIdentity, loadPresets } from "@/lib/settings-storage";
 import {
   generateStoryCompletion,
   getStoryRenderSignature,
@@ -308,7 +308,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
   const [editingGroupId, setEditingGroupId] = useState<string>("");
   const [groupDraftName, setGroupDraftName] = useState("");
   const [groupDraftMembers, setGroupDraftMembers] = useState<string[]>([]);
-  const [groupDraftLead, setGroupDraftLead] = useState<string>("");
+  const [groupDraftPreset, setGroupDraftPreset] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const shellInnerRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(true);
@@ -354,6 +354,24 @@ export function StoryApp({ onClose }: StoryAppProps) {
       if (on) next.add(sessionId); else next.delete(sessionId);
       return next;
     });
+  }, []);
+
+  // 群像：参与的每个角色都要记忆——逐个记账 + 触发总结（群像里人人平等，无配角）
+  const runStoryMemoryForIds = useCallback((ids: string[]) => {
+    const uniq = Array.from(new Set(ids.filter(Boolean)));
+    void (async () => {
+      for (const id of uniq) {
+        const c = loadCharacters().find((x) => x.id === id);
+        if (!c) continue;
+        try {
+          incrementEventCounter(id);
+          incrementEventCounter(id);
+          await maybeRunSummarization(id, c.name);
+        } catch (err) {
+          console.warn("[StoryApp] Memory counter/summarization failed:", err);
+        }
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -422,12 +440,12 @@ export function StoryApp({ onClose }: StoryAppProps) {
       setEditingGroupId(g.id);
       setGroupDraftName(g.name);
       setGroupDraftMembers(g.memberIds);
-      setGroupDraftLead(g.leadCharacterId);
+      setGroupDraftPreset(g.presetId || "");
     } else {
       setEditingGroupId("");
       setGroupDraftName("");
       setGroupDraftMembers([]);
-      setGroupDraftLead("");
+      setGroupDraftPreset("");
     }
     setGroupModalOpen(true);
   }, []);
@@ -435,16 +453,15 @@ export function StoryApp({ onClose }: StoryAppProps) {
   const saveGroupDraft = useCallback(() => {
     const members = groupDraftMembers.filter(Boolean);
     if (members.length < 2) { alert("剧情群组至少需要 2 个角色。"); return; }
-    const lead = members.includes(groupDraftLead) ? groupDraftLead : members[0];
     const name = groupDraftName.trim() || "剧情群组";
     if (editingGroupId) {
-      updateStoryGroup(editingGroupId, { name, memberIds: members, leadCharacterId: lead });
+      updateStoryGroup(editingGroupId, { name, memberIds: members, presetId: groupDraftPreset || undefined, leadCharacterId: members[0] });
     } else {
-      createStoryGroup({ name, memberIds: members, leadCharacterId: lead });
+      createStoryGroup({ name, memberIds: members, presetId: groupDraftPreset || undefined });
     }
     setGroupModalOpen(false);
     setStorageVersion((value) => value + 1);
-  }, [editingGroupId, groupDraftName, groupDraftMembers, groupDraftLead]);
+  }, [editingGroupId, groupDraftName, groupDraftMembers, groupDraftPreset]);
 
   const removeEditingGroup = useCallback(() => {
     if (!editingGroupId) return;
@@ -457,11 +474,9 @@ export function StoryApp({ onClose }: StoryAppProps) {
 
   function renderGroupModal() {
     const toggleMember = (id: string) => {
-      setGroupDraftMembers((prev) => {
-        const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-        if (!next.includes(groupDraftLead)) setGroupDraftLead(next[0] || "");
-        return next;
-      });
+      setGroupDraftMembers((prev) => (
+        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      ));
     };
     return (
       <div className="story-modal-overlay" onClick={() => setGroupModalOpen(false)}>
@@ -494,25 +509,22 @@ export function StoryApp({ onClose }: StoryAppProps) {
             })}
           </div>
 
-          {groupDraftMembers.length > 0 ? (
-            <>
-              <label className="story-group-modal-label">主导角色（用它的「剧情」绑定驱动预设/API，一次生成只能一套）</label>
-              <div className="story-group-modal-lead">
-                {groupDraftMembers.map((id) => {
-                  const c = characters.find((x) => x.id === id);
-                  if (!c) return null;
-                  return (
-                    <button
-                      key={id}
-                      className="story-group-modal-lead-chip"
-                      data-active={groupDraftLead === id ? "true" : undefined}
-                      onClick={() => setGroupDraftLead(id)}
-                    >{c.name}</button>
-                  );
-                })}
-              </div>
-            </>
-          ) : null}
+          <label className="story-group-modal-label">预设（从设置里已加好的预设直接选，全员共用这一套）</label>
+          <div className="story-group-modal-lead">
+            <button
+              className="story-group-modal-lead-chip"
+              data-active={!groupDraftPreset ? "true" : undefined}
+              onClick={() => setGroupDraftPreset("")}
+            >跟随默认</button>
+            {loadPresets().map((p) => (
+              <button
+                key={p.id}
+                className="story-group-modal-lead-chip"
+                data-active={groupDraftPreset === p.id ? "true" : undefined}
+                onClick={() => setGroupDraftPreset(p.id)}
+              >{p.name}</button>
+            ))}
+          </div>
 
           <div className="story-group-modal-actions">
             {editingGroupId ? (
@@ -792,6 +804,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
         sessionContextExcludedTags: currentThread?.contextExcludedTags,
         signal: generationRun.controller.signal,
         participantIds,
+        presetId: activeGroup?.presetId,
       });
       if (!isCurrentGeneration()) return;
       const assistantMessage = pushStoryMessage({
@@ -808,18 +821,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
       }
       setStorageVersion((value) => value + 1);
 
-      const storyCharacter = characters.find((character) => character.id === characterId);
-      if (storyCharacter) {
-        void (async () => {
-          try {
-            incrementEventCounter(characterId);
-            incrementEventCounter(characterId);
-            await maybeRunSummarization(characterId, storyCharacter.name);
-          } catch (err) {
-            console.warn("[StoryApp] Memory counter/summarization failed:", err);
-          }
-        })();
-      }
+      runStoryMemoryForIds([characterId, ...participantIds]);
     } catch (error) {
       if (!isCurrentGeneration() || isAbortLikeError(error)) return;
       const errText = error instanceof Error ? error.message : "剧情生成失败，请稍后再试。";
@@ -1000,6 +1002,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
         sessionContextExcludedTags: currentThread?.contextExcludedTags,
         signal: generationRun.controller.signal,
         participantIds,
+        presetId: activeGroup?.presetId,
       });
       if (!isCurrentGeneration()) return;
       const assistantMessage = pushStoryMessage({
@@ -1009,6 +1012,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
       });
       if (activeSessionIdRef.current === sessionId) setMessages(loadStoryMessages(sessionId));
       setStorageVersion(v => v + 1);
+      runStoryMemoryForIds([characterId, ...participantIds]);
     } catch (error) {
       if (!isCurrentGeneration() || isAbortLikeError(error)) return;
       const errText = error instanceof Error ? error.message : "重试失败，请稍后再试。";

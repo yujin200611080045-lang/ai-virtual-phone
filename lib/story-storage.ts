@@ -32,6 +32,9 @@ export type StoryGroup = {
   id: string;
   name: string;
   memberIds: string[];
+  /** 该群像用哪个预设生成（从设置里的预设直接选）。空=跟随默认预设。全员平等，无主导角色。 */
+  presetId?: string;
+  /** 仅作技术锚点（解析 API/regex/{{char}}），非“主导”，默认取第一个成员，界面不暴露。 */
   leadCharacterId: string;
   updatedAt: string;
   customCSS?: string;
@@ -179,16 +182,14 @@ export function getStoryGroup(groupId: string): StoryGroup | null {
   return _groupsCache.find((g) => g.id === groupId) || null;
 }
 
-export function createStoryGroup(input: { name: string; memberIds: string[]; leadCharacterId?: string }): StoryGroup {
+export function createStoryGroup(input: { name: string; memberIds: string[]; presetId?: string }): StoryGroup {
   const memberIds = Array.from(new Set(input.memberIds.filter(Boolean)));
-  const leadCharacterId = input.leadCharacterId && memberIds.includes(input.leadCharacterId)
-    ? input.leadCharacterId
-    : (memberIds[0] || "");
   const group: StoryGroup = {
     id: generateId("story_group"),
     name: input.name.trim() || "剧情群组",
     memberIds,
-    leadCharacterId,
+    presetId: input.presetId || undefined,
+    leadCharacterId: memberIds[0] || "",
     updatedAt: new Date().toISOString(),
     uiPrefs: {},
   };
@@ -346,27 +347,32 @@ export function loadStoryProjectionEntries(
   characterId: string,
   options?: { afterTimestamp?: string; userName?: string; charName?: string }
 ): StoryProjectionEntry[] {
-  const session = _sessionsCache.find((item) => item.characterId === characterId);
-  if (!session) return [];
-  const messages = loadStoryMessages(session.id);
   const projections: StoryProjectionEntry[] = [];
-
-  for (let i = 0; i < messages.length; i++) {
-    const current = messages[i];
-    if (current.role !== "assistant") continue;
-    if (options?.afterTimestamp && current.createdAt <= options.afterTimestamp) continue;
-
-    if (!current.storySummary) continue;
-    const summaryText = compactProjectionText(current.storySummary, 500);
-    if (!summaryText) continue;
-
-    const ts = formatChatTimestamp(current.createdAt);
-    projections.push({
-      id: `story_projection_${current.id}`,
-      timestamp: current.createdAt,
-      content: `[事件 ${ts}] ${summaryText}`,
-    });
+  // 该角色的剧情事件 = 自己的单人剧情 + 所有把它作为成员的剧情群组（群像里人人平等，都记）
+  const threadIds: string[] = [];
+  const soloSession = _sessionsCache.find((item) => item.characterId === characterId);
+  if (soloSession) threadIds.push(soloSession.id);
+  for (const group of _groupsCache) {
+    if (group.memberIds.includes(characterId)) threadIds.push(group.id);
   }
+  if (threadIds.length === 0) return [];
 
+  for (const threadId of threadIds) {
+    const messages = loadStoryMessages(threadId);
+    for (const current of messages) {
+      if (current.role !== "assistant") continue;
+      if (options?.afterTimestamp && current.createdAt <= options.afterTimestamp) continue;
+      if (!current.storySummary) continue;
+      const summaryText = compactProjectionText(current.storySummary, 500);
+      if (!summaryText) continue;
+      const ts = formatChatTimestamp(current.createdAt);
+      projections.push({
+        id: `story_projection_${current.id}`,
+        timestamp: current.createdAt,
+        content: `[事件 ${ts}] ${summaryText}`,
+      });
+    }
+  }
+  projections.sort((a, b) => (a.timestamp || "").localeCompare(b.timestamp || ""));
   return projections;
 }
