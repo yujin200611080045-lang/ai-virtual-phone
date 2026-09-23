@@ -17,8 +17,8 @@ interface StoryDialLauncherProps {
   onSaveGroup: (name: string, memberIds: string[], presetId: string, avatar: string) => void;
 }
 
-const ANGLE_STEP = 0.46;      // 相邻角色角间距（弧度）
-const VISIBLE_HALF = 1.24;    // 单侧可见角度
+const ANGLE_STEP = 0.48;      // 相邻角色角间距（弧度）
+const VISIBLE_HALF = 1.12;    // 单侧可见角度
 const FOCUS_SCALE = 1.42;
 const SCALE_FALL = 0.6;
 const MIN_SCALE = 0.58;
@@ -105,14 +105,14 @@ export function StoryDialLauncher({
   }, [N, setFocus]);
   useEffect(() => () => cancelRaf(), []);
 
-  // 圆心在左边、但挪进屏幕一点，让空心中央露出来（可靠的手势区）
-  const pivotX = size.w * 0.14;
-  const pivotY = size.h * 0.58;       // 略往下
-  const Rx = size.w * 0.68;
-  const Ry = size.h * 0.46;
+  // 圆心贴左边缘（只挪出一点点，让中央空心露在屏幕内当手势区）
+  const pivotX = -size.w * 0.04;
+  const pivotY = size.h * 0.53;       // 略往下
+  const Rx = size.w * 0.62;
+  const Ry = size.h * 0.4;
   const perItemPx = Ry * Math.sin(ANGLE_STEP) || 1;
-  const discR = Math.max(Rx, Ry) + 46;   // 磨砂盘半径（覆盖整条角色弧）
-  const interiorR = Rx * 0.7;            // 手势区=空心内圈（无头像），现在露在屏幕内
+  const discR = Math.max(Rx, Ry) + 42;   // 磨砂盘半径（覆盖整条角色弧）
+  const interiorR = Rx * 0.72;           // 手势区=空心内圈（无头像），露在屏幕左侧
 
   // 计算当前可见角色的屏幕位置，供命中测试
   const layoutRef = useRef<LayoutItem[]>([]);
