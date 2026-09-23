@@ -24,7 +24,7 @@ const SCALE_FALL = 0.6;
 const MIN_SCALE = 0.58;
 const AVATAR_PX = 60;
 const LONG_PRESS_MS = 450;
-const DOUBLE_TAP_MS = 260;
+const DOUBLE_TAP_MS = 320;
 
 function applyDetent(f: number): number {
   const n = Math.floor(f);
@@ -106,13 +106,13 @@ export function StoryDialLauncher({
   useEffect(() => () => cancelRaf(), []);
 
   // 圆心在左边
-  const pivotX = -size.w * 0.12;
+  const pivotX = -size.w * 0.16;
   const pivotY = size.h * 0.5;
-  const Rx = size.w * 0.6;
-  const Ry = size.h * 0.36;
+  const Rx = size.w * 0.66;
+  const Ry = size.h * 0.38;
   const perItemPx = Ry * Math.sin(ANGLE_STEP) || 1;
-  const discR = Rx + 40;              // 磨砂盘半径
-  const interiorR = Rx * 0.8;         // 判定“圆盘内部”的半径（避开角色所在的外缘）
+  const discR = Rx + 48;              // 磨砂盘半径
+  const interiorR = discR;            // 整个盘面（避开角色的判定交给 hitAvatar 优先）
 
   // 计算当前可见角色的屏幕位置，供命中测试
   const layoutRef = useRef<LayoutItem[]>([]);
