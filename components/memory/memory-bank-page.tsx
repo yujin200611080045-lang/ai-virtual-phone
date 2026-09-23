@@ -25,7 +25,7 @@ import { hydrateChatStorage } from "@/lib/chat-storage";
 import { loadNativeTimeline, type NativeTimelineEntry } from "@/lib/short-term-assembler";
 import { runSummarizationPipeline } from "@/lib/memory-summarizer";
 import { runMemoryDecayArchival } from "@/lib/memory-service";
-import { retentionFactor } from "@/lib/memory-hybrid";
+import { retentionFactor, memoryStrengthDays } from "@/lib/memory-hybrid";
 import { runCoreMemoryPipeline } from "@/lib/core-memory-builder";
 import { resolveAuxiliaryApiConfig, resolveUserIdentity } from "@/lib/settings-storage";
 import { generateEmbedding, resolveEmbeddingModel } from "@/lib/memory-embedding";
@@ -214,6 +214,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
     const [characters, setCharacters] = useState<CharacterMemoryInfo[]>([]);
     const [activeTab, setActiveTab] = useState<MemoryTab>("short");
     const [showArchived, setShowArchived] = useState(false);
+    const [ltSearch, setLtSearch] = useState("");
     const [coreEntries, setCoreEntries] = useState<MemoryEntry[]>([]);
     const [longTermEntries, setLongTermEntries] = useState<MemoryEntry[]>([]);
     const [shortTermEvents, setShortTermEvents] = useState<NativeTimelineEntry[]>([]);
@@ -737,6 +738,40 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                         : entry.content
                                 }
                             </div>
+                            {expandedId === entry.id && type === "long_term" && (() => {
+                                const r = retentionFactor(entry);
+                                const strength = Math.round(memoryStrengthDays(entry));
+                                const ageDays = Math.max(0, Math.round((Date.now() - new Date(entry.createdAt).getTime()) / 86400000));
+                                const hasCoord = typeof entry.valence === "number";
+                                const vx = hasCoord ? ((entry.valence as number) + 1) / 2 : 0.5;
+                                const vy = 1 - (typeof entry.arousal === "number" ? (entry.arousal as number) : 0.5);
+                                const meta = entry.metadata || {};
+                                const events = typeof meta.summarizedEvents === "number" ? meta.summarizedEvents : undefined;
+                                const span = typeof meta.timeSpan === "string" ? meta.timeSpan : undefined;
+                                return (
+                                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed var(--c-border, rgba(0,0,0,0.08))", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "flex-start" }}>
+                                        {/* 情绪二维坐标小图 */}
+                                        <div style={{ flexShrink: 0 }}>
+                                            <div style={{ position: "relative", width: 76, height: 76, borderRadius: 8, background: "var(--c-input, rgba(0,0,0,0.05))", overflow: "hidden" }}>
+                                                <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 1, background: "rgba(0,0,0,0.1)" }} />
+                                                <div style={{ position: "absolute", top: 0, bottom: 0, left: "50%", width: 1, background: "rgba(0,0,0,0.1)" }} />
+                                                {hasCoord && (
+                                                    <div style={{ position: "absolute", left: `${vx * 100}%`, top: `${vy * 100}%`, width: 10, height: 10, borderRadius: 999, background: valenceColor(entry.valence as number), transform: "translate(-50%,-50%)", boxShadow: "0 0 0 2px #fff" }} />
+                                                )}
+                                            </div>
+                                            <div className="ts-11 text-secondary" style={{ textAlign: "center", marginTop: 3 }}>情绪坐标</div>
+                                        </div>
+                                        {/* 数值明细 */}
+                                        <div className="ts-11 text-secondary" style={{ flex: 1, minWidth: 150, lineHeight: 1.9 }}>
+                                            <div>效价 valence：<b style={{ color: "var(--c-text,#333)" }}>{hasCoord ? (entry.valence as number).toFixed(2) : "—"}</b>　强度 arousal：<b style={{ color: "var(--c-text,#333)" }}>{typeof entry.arousal === "number" ? (entry.arousal as number).toFixed(2) : "—"}</b></div>
+                                            <div>记忆强度：<b style={{ color: "var(--c-text,#333)" }}>{Math.round(r * 100)}%</b>（半衰约 {strength} 天 · 距今 {ageDays} 天）</div>
+                                            <div>重要度：<b style={{ color: "var(--c-text,#333)" }}>{Math.round((entry.importance ?? 0.5) * 100)}%</b>　来源：{sourceLabel(entry.sourceApp)}{entry.metadata?.archived ? "　· 已归档" : ""}</div>
+                                            {events !== undefined && <div>整合事件：{events} 条{span ? `　时间跨度：${span}` : ""}</div>}
+                                            {(entry.tags && entry.tags.length > 0) && <div>标签：{entry.tags.join("、")}</div>}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </div>
                     ))
                 )}
@@ -781,20 +816,36 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                     ) : (
                         /* ── Long-term: Summarized Memories ── */
                         <>
-                            {longTermEntries.some(e => e.metadata?.archived) && (
-                                <button
-                                    className="ts-12 text-secondary"
-                                    style={{ display: "block", margin: "0 0 10px auto", padding: "4px 10px", borderRadius: 999, border: "1px solid var(--c-border, rgba(0,0,0,0.1))", background: "transparent" }}
-                                    onClick={() => setShowArchived(v => !v)}
-                                >
-                                    {showArchived ? "隐藏已归档" : `显示已归档（${longTermEntries.filter(e => e.metadata?.archived).length}）`}
-                                </button>
-                            )}
-                            {renderMemoryEntries(
-                                "long_term",
-                                showArchived ? longTermEntries : longTermEntries.filter(e => !e.metadata?.archived),
-                                "暂无长期记忆。点击设置页的手动总结，或直接新增一条记忆。",
-                            )}
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 10px" }}>
+                                <input
+                                    value={ltSearch}
+                                    onChange={(e) => setLtSearch(e.target.value)}
+                                    placeholder="搜索记忆（内容 / 标题 / 标签）"
+                                    className="ts-12"
+                                    style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: "1px solid var(--c-border, rgba(0,0,0,0.1))", background: "var(--c-input, rgba(0,0,0,0.03))", color: "var(--c-text, #333)" }}
+                                />
+                                {longTermEntries.some(e => e.metadata?.archived) && (
+                                    <button
+                                        className="ts-11 text-secondary"
+                                        style={{ flexShrink: 0, padding: "6px 10px", borderRadius: 999, border: "1px solid var(--c-border, rgba(0,0,0,0.1))", background: "transparent" }}
+                                        onClick={() => setShowArchived(v => !v)}
+                                    >
+                                        {showArchived ? "隐藏归档" : `含归档(${longTermEntries.filter(e => e.metadata?.archived).length})`}
+                                    </button>
+                                )}
+                            </div>
+                            {(() => {
+                                const q = ltSearch.trim().toLowerCase();
+                                let list = showArchived ? longTermEntries : longTermEntries.filter(e => !e.metadata?.archived);
+                                if (q) {
+                                    list = list.filter(e =>
+                                        e.content.toLowerCase().includes(q) ||
+                                        (e.title || "").toLowerCase().includes(q) ||
+                                        (e.tags || []).some(t => t.toLowerCase().includes(q))
+                                    );
+                                }
+                                return renderMemoryEntries("long_term", list, q ? "没有匹配的记忆。" : "暂无长期记忆。点击设置页的手动总结，或直接新增一条记忆。");
+                            })()}
                         </>
                     )}
                     </MemoryDetailBoundary>
