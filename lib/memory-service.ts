@@ -2,10 +2,10 @@
 // High-level memory orchestration: retrieve long-term memories for prompt injection.
 
 import type { MemoryConfig, MemoryEntry } from "./memory-types";
-import { loadMemoryEntriesByType } from "./memory-storage";
+import { loadMemoryEntriesByType, saveMemoryEntry } from "./memory-storage";
 import { resolveAuxiliaryApiConfig } from "./settings-storage";
 import { generateEmbedding, resolveEmbeddingModel, cosineSimilarity } from "./memory-embedding";
-import { rankMemoriesHybrid } from "./memory-hybrid";
+import { rankMemoriesHybrid, retentionFactor } from "./memory-hybrid";
 import { estimateTokens } from "./token-counter";
 
 /**
@@ -73,6 +73,32 @@ export async function retrieveCoreMemoriesForPrompt(
     });
 
     return fillByBudget(sorted, config.coreMemoryTokenBudget);
+}
+
+/**
+ * 遗忘落地：把「保持率极低 + 不重要 + 非手动」的长期记忆标记为归档。
+ * 归档后不再主动召回（retrieve 已过滤），但仍可搜索、可在记忆库里恢复。核心记忆不受影响。
+ * 纯本地计算，不发任何请求。返回本次新归档的条数。
+ */
+export async function runMemoryDecayArchival(characterId: string, config: MemoryConfig): Promise<number> {
+    if (config.autoArchiveEnabled === false) return 0;
+    const threshold = typeof config.archiveRetentionThreshold === "number" ? config.archiveRetentionThreshold : 0.12;
+    const entries = await loadMemoryEntriesByType(characterId, "long_term");
+    const now = Date.now();
+    let archived = 0;
+    for (const e of entries) {
+        if (e.metadata?.archived === true) continue;
+        if ((e.importance ?? 0.5) >= 0.6) continue;             // 重要的不归档
+        if (e.metadata?.origin === "user_manual") continue;      // 用户手动加的不自动归档
+        if (retentionFactor(e, now) > threshold) continue;       // 还没忘到那份上
+        await saveMemoryEntry({
+            ...e,
+            metadata: { ...(e.metadata || {}), archived: true, archivedAt: new Date().toISOString(), archivedReason: "decay" },
+            updatedAt: new Date().toISOString(),
+        });
+        archived++;
+    }
+    return archived;
 }
 
 /** Pick entries in order until token budget is exhausted. */

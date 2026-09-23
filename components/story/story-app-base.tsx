@@ -389,6 +389,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
         latest: fmt(latest),
         eventCount: lines.length,
         sourceApp: "story",
+        sourceThreadId: currentThread.id,
       });
       if (res.success) {
         if (activeGroupId) updateStoryGroup(currentThread.id, { lastSummaryAt: latest });

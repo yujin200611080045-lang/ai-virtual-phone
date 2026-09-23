@@ -24,6 +24,7 @@ import {
 import { hydrateChatStorage } from "@/lib/chat-storage";
 import { loadNativeTimeline, type NativeTimelineEntry } from "@/lib/short-term-assembler";
 import { runSummarizationPipeline } from "@/lib/memory-summarizer";
+import { runMemoryDecayArchival } from "@/lib/memory-service";
 import { runCoreMemoryPipeline } from "@/lib/core-memory-builder";
 import { resolveAuxiliaryApiConfig, resolveUserIdentity } from "@/lib/settings-storage";
 import { generateEmbedding, resolveEmbeddingModel } from "@/lib/memory-embedding";
@@ -195,6 +196,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
     const [config, setConfig] = useState<MemoryConfig>(loadMemoryConfig);
     const [characters, setCharacters] = useState<CharacterMemoryInfo[]>([]);
     const [activeTab, setActiveTab] = useState<MemoryTab>("short");
+    const [showArchived, setShowArchived] = useState(false);
     const [coreEntries, setCoreEntries] = useState<MemoryEntry[]>([]);
     const [longTermEntries, setLongTermEntries] = useState<MemoryEntry[]>([]);
     const [shortTermEvents, setShortTermEvents] = useState<NativeTimelineEntry[]>([]);
@@ -280,6 +282,8 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
         setLoading(true);
         try {
             await hydrateChatStorage();
+            // 遗忘落地：进记忆库时先把忘透的旧记忆归档（纯本地）
+            try { await runMemoryDecayArchival(charId, loadMemoryConfig()); } catch { /* ignore */ }
             const [core, lt] = await Promise.all([
                 loadMemoryEntriesByType(charId, "core"),
                 loadMemoryEntriesByType(charId, "long_term"),
@@ -570,6 +574,18 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
         }
     };
 
+    const toggleArchive = async (entry: MemoryEntry) => {
+        try {
+            const archived = entry.metadata?.archived === true;
+            await saveMemoryEntry({
+                ...entry,
+                metadata: { ...(entry.metadata || {}), archived: !archived, ...(archived ? {} : { archivedAt: new Date().toISOString(), archivedReason: "manual" }) },
+                updatedAt: new Date().toISOString(),
+            });
+            if (selectedCharId) await loadDetailData(selectedCharId);
+        } catch { /* ignore */ }
+    };
+
     const renderMemoryEntries = (type: MemoryEntry["type"], entries: MemoryEntry[], emptyText: string) => {
         const label = type === "core" ? "核心记忆" : "长期记忆";
         return (
@@ -612,6 +628,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                         <div
                             key={entry.id}
                             className={`g-card memory-report-card${entryMenuId === entry.id ? " is-menu-open" : ""}`}
+                            style={entry.metadata?.archived ? { opacity: 0.5 } : undefined}
                             onClick={() => {
                                 if (entryMenuId) {
                                     setEntryMenuId(null);
@@ -643,6 +660,12 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                                     <Edit3 size={13} />
                                                     <span>编辑</span>
                                                 </button>
+                                                {type === "long_term" && (
+                                                    <button onClick={() => { setEntryMenuId(null); void toggleArchive(entry); }}>
+                                                        <Archive size={13} />
+                                                        <span>{entry.metadata?.archived ? "取消归档" : "归档"}</span>
+                                                    </button>
+                                                )}
                                                 <button
                                                     className="is-danger"
                                                     onClick={() => {
@@ -722,7 +745,22 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                         renderMemoryEntries("core", coreEntries, "暂无核心记忆。长期记忆累计到设定条数后会自动提炼，也可以手动新增。")
                     ) : (
                         /* ── Long-term: Summarized Memories ── */
-                        renderMemoryEntries("long_term", longTermEntries, "暂无长期记忆。点击设置页的手动总结，或直接新增一条记忆。")
+                        <>
+                            {longTermEntries.some(e => e.metadata?.archived) && (
+                                <button
+                                    className="ts-12 text-secondary"
+                                    style={{ display: "block", margin: "0 0 10px auto", padding: "4px 10px", borderRadius: 999, border: "1px solid var(--c-border, rgba(0,0,0,0.1))", background: "transparent" }}
+                                    onClick={() => setShowArchived(v => !v)}
+                                >
+                                    {showArchived ? "隐藏已归档" : `显示已归档（${longTermEntries.filter(e => e.metadata?.archived).length}）`}
+                                </button>
+                            )}
+                            {renderMemoryEntries(
+                                "long_term",
+                                showArchived ? longTermEntries : longTermEntries.filter(e => !e.metadata?.archived),
+                                "暂无长期记忆。点击设置页的手动总结，或直接新增一条记忆。",
+                            )}
+                        </>
                     )}
                     </MemoryDetailBoundary>
                 </div>

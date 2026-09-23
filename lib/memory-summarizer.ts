@@ -220,6 +220,8 @@ export async function runSummarizationPipeline(
 
     incrementCoreMemoryCounter(characterId);
     await maybeRunCoreMemoryPipeline(characterId, characterName);
+    // 遗忘落地：把忘透了的旧记忆归档（纯本地，不发请求）
+    try { const { runMemoryDecayArchival } = await import("./memory-service"); await runMemoryDecayArchival(characterId, config); } catch { /* ignore */ }
 
     console.log(`[MemorySummarizer] Summarized ${allEntries.length} entries → 1 long-term memory`);
     return { success: true };
@@ -237,6 +239,7 @@ export async function summarizeSharedForMembers(params: {
     latest: string;
     eventCount: number;
     sourceApp?: MemoryEntry["sourceApp"];
+    sourceThreadId?: string;
 }): Promise<{ success: boolean; error?: string; summary?: string; memberCount?: number }> {
     const memberIds = Array.from(new Set(params.memberIds.filter(Boolean)));
     if (memberIds.length === 0) return { success: false, error: "没有参与角色" };
@@ -281,7 +284,11 @@ export async function summarizeSharedForMembers(params: {
             tags: emotionTag.tags,
             valence: emotionTag.valence,
             arousal: emotionTag.arousal,
-            metadata: { summarizedEvents: params.eventCount, timeSpan: `${params.earliest} ~ ${params.latest}` },
+            metadata: {
+                summarizedEvents: params.eventCount,
+                timeSpan: `${params.earliest} ~ ${params.latest}`,
+                ...(params.sourceThreadId ? { sourceSessionIds: [params.sourceThreadId] } : {}),
+            },
         };
         await saveMemoryEntry(entry);
         // 各自裁剪上限
