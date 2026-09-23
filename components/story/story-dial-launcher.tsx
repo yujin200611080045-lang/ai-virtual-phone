@@ -17,8 +17,8 @@ interface StoryDialLauncherProps {
   onSaveGroup: (name: string, memberIds: string[], presetId: string, avatar: string) => void;
 }
 
-const ANGLE_STEP = 0.5;       // 相邻角色角间距（弧度）
-const VISIBLE_HALF = 1.28;    // 单侧可见角度
+const ANGLE_STEP = 0.46;      // 相邻角色角间距（弧度）
+const VISIBLE_HALF = 1.24;    // 单侧可见角度
 const FOCUS_SCALE = 1.42;
 const SCALE_FALL = 0.6;
 const MIN_SCALE = 0.58;
@@ -105,14 +105,14 @@ export function StoryDialLauncher({
   }, [N, setFocus]);
   useEffect(() => () => cancelRaf(), []);
 
-  // 圆心在左边
-  const pivotX = -size.w * 0.16;
-  const pivotY = size.h * 0.5;
-  const Rx = size.w * 0.66;
-  const Ry = size.h * 0.38;
+  // 圆心在左边、但挪进屏幕一点，让空心中央露出来（可靠的手势区）
+  const pivotX = size.w * 0.14;
+  const pivotY = size.h * 0.58;       // 略往下
+  const Rx = size.w * 0.68;
+  const Ry = size.h * 0.46;
   const perItemPx = Ry * Math.sin(ANGLE_STEP) || 1;
-  const discR = Rx + 48;              // 磨砂盘半径
-  const interiorR = discR;            // 整个盘面（避开角色的判定交给 hitAvatar 优先）
+  const discR = Math.max(Rx, Ry) + 46;   // 磨砂盘半径（覆盖整条角色弧）
+  const interiorR = Rx * 0.7;            // 手势区=空心内圈（无头像），现在露在屏幕内
 
   // 计算当前可见角色的屏幕位置，供命中测试
   const layoutRef = useRef<LayoutItem[]>([]);
@@ -162,7 +162,7 @@ export function StoryDialLauncher({
     { startX: 0, startY: 0, startF: 0, moved: false, interiorStart: false });
   const longPressTimer = useRef<number | null>(null);
   const longPressFired = useRef(false);
-  const tapTimer = useRef<number | null>(null);
+  const lastInteriorTap = useRef(0);
 
   const clearLongPress = () => { if (longPressTimer.current != null) { window.clearTimeout(longPressTimer.current); longPressTimer.current = null; } };
 
@@ -228,11 +228,12 @@ export function StoryDialLauncher({
       return;
     }
     // 单人态：单击圆盘内部无操作；双击 = 进入已有群组
-    if (tapTimer.current != null) {
-      window.clearTimeout(tapTimer.current); tapTimer.current = null;
+    const now = Date.now();
+    if (now - lastInteriorTap.current < DOUBLE_TAP_MS) {
+      lastInteriorTap.current = 0;
       setShowGroups(true);
     } else {
-      tapTimer.current = window.setTimeout(() => { tapTimer.current = null; }, DOUBLE_TAP_MS);
+      lastInteriorTap.current = now;
     }
   };
 
