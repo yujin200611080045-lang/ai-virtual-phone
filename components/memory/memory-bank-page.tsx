@@ -25,6 +25,7 @@ import { hydrateChatStorage } from "@/lib/chat-storage";
 import { loadNativeTimeline, type NativeTimelineEntry } from "@/lib/short-term-assembler";
 import { runSummarizationPipeline } from "@/lib/memory-summarizer";
 import { runMemoryDecayArchival } from "@/lib/memory-service";
+import { retentionFactor } from "@/lib/memory-hybrid";
 import { runCoreMemoryPipeline } from "@/lib/core-memory-builder";
 import { resolveAuxiliaryApiConfig, resolveUserIdentity } from "@/lib/settings-storage";
 import { generateEmbedding, resolveEmbeddingModel } from "@/lib/memory-embedding";
@@ -162,6 +163,22 @@ function moodEmoji(valence: number, arousal?: number): string {
     if (valence >= 0.35) return a >= 0.6 ? "😄" : "😌";
     if (valence <= -0.35) return a >= 0.6 ? "😠" : "😔";
     return a >= 0.6 ? "😮" : "😐";
+}
+
+// 效价 → 色：正面偏绿、负面偏红、中性偏灰
+function valenceColor(valence: number): string {
+    if (valence >= 0.2) return "#3aa76d";
+    if (valence <= -0.2) return "#d9534f";
+    return "#9aa0aa";
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+    chat: "聊天", group_chat: "群聊", story: "剧情", moments: "朋友圈", checkphone: "查手机",
+    diary: "日记", xiaohongshu: "小红书", interview_magazine: "访谈", cocreate: "共创",
+    game: "小游戏", vn: "视觉小说", adventure: "跑团", custom_app: "自定义应用",
+};
+function sourceLabel(app?: string): string {
+    return (app && SOURCE_LABELS[app]) || "记忆";
 }
 
 function relativeTime(isoStr: string): string {
@@ -628,7 +645,10 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                         <div
                             key={entry.id}
                             className={`g-card memory-report-card${entryMenuId === entry.id ? " is-menu-open" : ""}`}
-                            style={entry.metadata?.archived ? { opacity: 0.5 } : undefined}
+                            style={{
+                                ...(entry.metadata?.archived ? { opacity: 0.5 } : {}),
+                                ...(typeof entry.valence === "number" ? { borderLeft: `3px solid ${valenceColor(entry.valence)}` } : {}),
+                            }}
                             onClick={() => {
                                 if (entryMenuId) {
                                     setEntryMenuId(null);
@@ -694,6 +714,21 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                     ))}
                                 </div>
                             )}
+                            {type === "long_term" && (() => {
+                                const r = retentionFactor(entry);
+                                return (
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 8px" }}>
+                                        <span className="ts-11 text-secondary" style={{ whiteSpace: "nowrap" }}>记忆强度</span>
+                                        <span style={{ flex: 1, height: 4, borderRadius: 999, background: "var(--c-input, rgba(0,0,0,0.08))", overflow: "hidden", maxWidth: 120 }}>
+                                            <span style={{ display: "block", height: "100%", width: `${Math.round(r * 100)}%`, background: r > 0.5 ? "#3aa76d" : r > 0.2 ? "#e0a020" : "#c96", borderRadius: 999 }} />
+                                        </span>
+                                        <span className="ts-11 text-secondary" style={{ whiteSpace: "nowrap" }}>
+                                            {Math.round(r * 100)}% · 来源 {sourceLabel(entry.sourceApp)}
+                                            {entry.metadata?.archived ? " · 已归档" : ""}
+                                        </span>
+                                    </div>
+                                );
+                            })()}
                             <div className="ts-12 leading-[1.7]">
                                 {expandedId === entry.id
                                     ? entry.content
