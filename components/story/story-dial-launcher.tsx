@@ -84,8 +84,12 @@ export function StoryDialLauncher({
     return () => window.removeEventListener("resize", measure);
   }, []);
 
+  const MRef = useRef(0);
+  MRef.current = M;
+  // 焦点默认落在列表中间：第一个角色跑到上面去，上半就不空了
   const resetFocus = useCallback(() => {
-    fRef.current = 0; lastFocusRef.current = 0; setF(0);
+    const c = Math.max(0, (MRef.current - 1) / 2);
+    fRef.current = c; lastFocusRef.current = Math.round(c); setF(c);
   }, []);
 
   const setFocus = useCallback((next: number, isDrag: boolean) => {
@@ -116,15 +120,16 @@ export function StoryDialLauncher({
     rafRef.current = requestAnimationFrame(step);
   }, [M, setFocus]);
   useEffect(() => () => cancelRaf(), []);
+  // 进入 / 切换盘面时把焦点归到中间（第一个顶到上面）
+  useEffect(() => { resetFocus(); }, [deck, mode, resetFocus]);
 
-  // 圆心贴左边缘
+  // 圆心贴左边缘；用正圆，让头像正好排在盘的边上
   const pivotX = -size.w * 0.04;
-  const pivotY = size.h * 0.53;
-  const Rx = size.w * 0.62;
-  const Ry = size.h * 0.4;
-  const perItemPx = Ry * Math.sin(ANGLE_STEP) || 1;
-  const discR = Math.max(Rx, Ry) + 42;
-  const interiorR = Rx * 0.72;
+  const pivotY = size.h * 0.56;       // 略往下
+  const R = Math.min(size.w * 0.52, size.h * 0.42);
+  const perItemPx = R * Math.sin(ANGLE_STEP) || 1;
+  const discR = R + 34;               // 盘沿刚好落在头像外缘（头像贴边）
+  const interiorR = R * 0.72;         // 手势区=空心内圈（无头像），露在屏幕左侧
 
   const layoutRef = useRef<LayoutItem[]>([]);
   const focusIdRef = useRef<string>("");
@@ -136,8 +141,8 @@ export function StoryDialLauncher({
     for (let i = 0; i < M; i++) {
       const a = (i - detented) * ANGLE_STEP;
       if (Math.abs(a) > VISIBLE_HALF + ANGLE_STEP) continue;
-      const x = pivotX + Rx * Math.cos(a);
-      const y = pivotY + Ry * Math.sin(a);
+      const x = pivotX + R * Math.cos(a);
+      const y = pivotY + R * Math.sin(a);
       const scale = clamp(FOCUS_SCALE - Math.abs(a) * SCALE_FALL, MIN_SCALE, FOCUS_SCALE);
       list.push({ id: items[i].id, index: i, x, y, r: (AVATAR_PX * scale) / 2 + 12 });
     }
@@ -275,8 +280,8 @@ export function StoryDialLauncher({
         {items.map((it, i) => {
           const a = (i - detented) * ANGLE_STEP;
           if (Math.abs(a) > VISIBLE_HALF + ANGLE_STEP) return null;
-          const x = pivotX + Rx * Math.cos(a);
-          const y = pivotY + Ry * Math.sin(a);
+          const x = pivotX + R * Math.cos(a);
+          const y = pivotY + R * Math.sin(a);
           const scale = clamp(FOCUS_SCALE - Math.abs(a) * SCALE_FALL, MIN_SCALE, FOCUS_SCALE);
           const opacity = Math.abs(a) > VISIBLE_HALF ? clamp(1 - (Math.abs(a) - VISIBLE_HALF) / ANGLE_STEP, 0, 1) : 1;
           const z = Math.round(120 - Math.abs(a) * 40);
