@@ -32,6 +32,8 @@ export type StoryGroup = {
   id: string;
   name: string;
   memberIds: string[];
+  /** 群组头像（data URL）。空则用成员头像拼贴兜底。 */
+  avatar?: string;
   /** 该群像用哪个预设生成（从设置里的预设直接选）。空=跟随默认预设。全员平等，无主导角色。 */
   presetId?: string;
   /** 仅作技术锚点（解析 API/regex/{{char}}），非“主导”，默认取第一个成员，界面不暴露。 */
@@ -182,12 +184,13 @@ export function getStoryGroup(groupId: string): StoryGroup | null {
   return _groupsCache.find((g) => g.id === groupId) || null;
 }
 
-export function createStoryGroup(input: { name: string; memberIds: string[]; presetId?: string }): StoryGroup {
+export function createStoryGroup(input: { name: string; memberIds: string[]; presetId?: string; avatar?: string }): StoryGroup {
   const memberIds = Array.from(new Set(input.memberIds.filter(Boolean)));
   const group: StoryGroup = {
     id: generateId("story_group"),
     name: input.name.trim() || "剧情群组",
     memberIds,
+    avatar: input.avatar || undefined,
     presetId: input.presetId || undefined,
     leadCharacterId: memberIds[0] || "",
     updatedAt: new Date().toISOString(),
