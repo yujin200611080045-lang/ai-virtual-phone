@@ -21,6 +21,8 @@ export type StorySession = {
   uiPrefs?: StoryUiPrefs;
   lastMessageId?: string;
   lastMessagePreview?: string;
+  /** 手动总结水位线：上次「总结本场剧情」到的消息时间，之后的才算新内容 */
+  lastSummaryAt?: string;
 };
 
 /**
@@ -45,6 +47,8 @@ export type StoryGroup = {
   uiPrefs?: StoryUiPrefs;
   lastMessageId?: string;
   lastMessagePreview?: string;
+  /** 手动总结水位线：上次「总结本场剧情」到的消息时间，之后的才算新内容 */
+  lastSummaryAt?: string;
 };
 
 export type StoryMessageRole = "user" | "assistant" | "system";

@@ -40,7 +40,7 @@ import { Avatar } from "@/components/ui/primitives";
 import { StoryDialLauncher } from "./story-dial-launcher";
 import { StoryHtmlRenderer } from "@/components/ui/story-html-renderer";
 import { loadCharacters } from "@/lib/character-storage";
-import { maybeRunSummarization } from "@/lib/memory-summarizer";
+import { maybeRunSummarization, summarizeSharedForMembers } from "@/lib/memory-summarizer";
 import { incrementEventCounter } from "@/lib/memory-storage";
 import { resolveUserIdentity, loadPresets } from "@/lib/settings-storage";
 import {
@@ -358,6 +358,53 @@ export function StoryApp({ onClose }: StoryAppProps) {
   }, []);
 
   // 群像：参与的每个角色都要记忆——逐个记账 + 触发总结（群像里人人平等，无配角）
+  const [summarizing, setSummarizing] = useState(false);
+
+  // 手动总结本场剧情：生成一份，原样同步给所有参与角色（内容一致）
+  const handleSummarizeStory = useCallback(async () => {
+    if (!currentThread || summarizing) return;
+    const memberIds = activeGroup ? activeGroup.memberIds : [activeCharacterId];
+    const rosterName = activeGroup
+      ? (activeGroup.name || memberIds.map((id) => characters.find((c) => c.id === id)?.name).filter(Boolean).join("、"))
+      : (currentCharacter?.name || "");
+    const after = activeGroup ? activeGroup.lastSummaryAt : currentSession?.lastSummaryAt;
+    const msgs = loadStoryMessages(currentThread.id).filter((m) => (m.role === "user" || m.role === "assistant") && (!after || m.createdAt > after));
+    if (msgs.length === 0) { alert("没有新的剧情内容可总结。"); return; }
+    const strip = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const lines = msgs.map((m) => {
+      const who = m.role === "user" ? (userIdentity?.name || "我") : rosterName;
+      const body = m.role === "assistant" ? (m.storySummary?.trim() || strip(m.rawContent)) : strip(m.rawContent);
+      return body ? `${who}：${body}` : "";
+    }).filter(Boolean);
+    if (lines.length === 0) { alert("没有新的剧情内容可总结。"); return; }
+    const fmt = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? iso : d.toLocaleString("zh-CN"); };
+    const latest = msgs[msgs.length - 1].createdAt;
+
+    setSummarizing(true);
+    try {
+      const res = await summarizeSharedForMembers({
+        memberIds, rosterName,
+        eventsText: lines.join("\n"),
+        earliest: fmt(msgs[0].createdAt),
+        latest: fmt(latest),
+        eventCount: lines.length,
+        sourceApp: "story",
+      });
+      if (res.success) {
+        if (activeGroupId) updateStoryGroup(currentThread.id, { lastSummaryAt: latest });
+        else updateStorySession(currentThread.id, { lastSummaryAt: latest });
+        setStorageVersion((v) => v + 1);
+        alert(`已总结本场剧情，并同步给 ${res.memberCount} 位角色（内容一致）。`);
+      } else {
+        alert(res.error || "总结失败，请稍后重试。");
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "总结失败，请稍后重试。");
+    } finally {
+      setSummarizing(false);
+    }
+  }, [currentThread, currentSession, summarizing, activeGroup, activeGroupId, activeCharacterId, currentCharacter, characters, userIdentity]);
+
   const runStoryMemoryForIds = useCallback((ids: string[]) => {
     const uniq = Array.from(new Set(ids.filter(Boolean)));
     void (async () => {
@@ -1206,6 +1253,16 @@ export function StoryApp({ onClose }: StoryAppProps) {
 
         <div className="story-drawer-section">
           <div className="story-drawer-eyebrow">工具</div>
+          <button
+            className="story-tool-btn"
+            style={{ marginBottom: 10 }}
+            disabled={summarizing}
+            onClick={handleSummarizeStory}
+          >
+            {summarizing
+              ? "正在总结…"
+              : activeGroupId ? "总结本场剧情 · 同步全体成员" : "总结本场剧情 · 存入记忆"}
+          </button>
           <button
             className="story-tool-btn"
             onClick={() => {

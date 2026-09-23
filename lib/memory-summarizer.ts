@@ -182,3 +182,68 @@ export async function runSummarizationPipeline(
     console.log(`[MemorySummarizer] Summarized ${allEntries.length} entries → 1 long-term memory`);
     return { success: true };
 }
+
+/**
+ * 手动总结一段共享内容（如一场剧情），生成【一份】总结，原样写进所有参与角色的长期记忆库。
+ * 与自动总结不同：内容对全体一致（不是各人各总结一份），且不动各角色的自动总结水位线/计数。
+ */
+export async function summarizeSharedForMembers(params: {
+    memberIds: string[];
+    rosterName: string;      // 用于 {{char}} 占位
+    eventsText: string;
+    earliest: string;
+    latest: string;
+    eventCount: number;
+    sourceApp?: MemoryEntry["sourceApp"];
+}): Promise<{ success: boolean; error?: string; summary?: string; memberCount?: number }> {
+    const memberIds = Array.from(new Set(params.memberIds.filter(Boolean)));
+    if (memberIds.length === 0) return { success: false, error: "没有参与角色" };
+    if (!params.eventsText.trim()) return { success: false, error: "这段剧情还没有可总结的内容" };
+
+    const config = loadMemoryConfig();
+    const apiConfig = resolveAuxiliaryApiConfig("memorySummaryApiConfigId");
+    if (!apiConfig) return { success: false, error: "未配置记忆总结 API（请在绑定配置 → 辅助API绑定中设置）" };
+
+    const promptTemplate = config.summarizationPrompt?.trim() || DEFAULT_SUMMARIZATION_PROMPT;
+    const summaryPrompt = promptTemplate
+        .replace(/\{\{char\}\}/gi, params.rosterName)
+        .replace(/\{\{earliest\}\}/gi, params.earliest)
+        .replace(/\{\{latest\}\}/gi, params.latest)
+        .replace(/\{\{events\}\}/gi, params.eventsText);
+
+    const result = await simpleLLMCall(apiConfig, [{ role: "user", content: summaryPrompt }], { temperature: 0.3 });
+    if (!result.content) return { success: false, error: result.error || "LLM 返回了空内容" };
+    if (result.wasTruncated) return { success: false, error: "总结结果疑似被截断，请稍后重试或提高模型输出上限" };
+    const summary = result.content;
+
+    // 只算一次向量，全体复用
+    let embedding: number[] | undefined;
+    const embeddingApiConfig = config.vectorRecallEnabled ? resolveAuxiliaryApiConfig("embeddingApiConfigId") : null;
+    if (embeddingApiConfig && resolveEmbeddingModel(embeddingApiConfig)) {
+        try { const emb = await generateEmbedding(summary, embeddingApiConfig); if (emb) embedding = emb; } catch { /* ignore */ }
+    }
+
+    const now = new Date().toISOString();
+    for (const characterId of memberIds) {
+        const entry: MemoryEntry = {
+            id: `mem_lt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            characterId,
+            sourceApp: (params.sourceApp || "story") as MemoryEntry["sourceApp"],
+            type: "long_term",
+            content: summary,
+            embedding,
+            importance: 0.8,
+            createdAt: now,
+            updatedAt: now,
+            metadata: { summarizedEvents: params.eventCount, timeSpan: `${params.earliest} ~ ${params.latest}` },
+        };
+        await saveMemoryEntry(entry);
+        // 各自裁剪上限
+        const all = await loadMemoryEntries(characterId);
+        if (all.length > config.maxLongTermEntries) {
+            await deleteMemoryEntries(all.slice(0, all.length - config.maxLongTermEntries).map(e => e.id));
+        }
+    }
+
+    return { success: true, summary, memberCount: memberIds.length };
+}
