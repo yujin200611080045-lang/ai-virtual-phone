@@ -5,6 +5,7 @@ import type { MemoryConfig, MemoryEntry } from "./memory-types";
 import { loadMemoryEntriesByType } from "./memory-storage";
 import { resolveAuxiliaryApiConfig } from "./settings-storage";
 import { generateEmbedding, resolveEmbeddingModel, cosineSimilarity } from "./memory-embedding";
+import { rankMemoriesHybrid } from "./memory-hybrid";
 import { estimateTokens } from "./token-counter";
 
 /**
@@ -20,7 +21,9 @@ export async function retrieveMemoriesForPrompt(
     currentContext: string,
     config: MemoryConfig
 ): Promise<MemoryEntry[]> {
-    const longTermEntries = await loadMemoryEntriesByType(characterId, "long_term");
+    const allEntries = await loadMemoryEntriesByType(characterId, "long_term");
+    // 归档的记忆可搜但不主动召回
+    const longTermEntries = allEntries.filter((m) => !(m.metadata && m.metadata.archived === true));
     if (longTermEntries.length === 0 || !currentContext.trim()) return [];
 
     const budget = config.longTermTokenBudget;
@@ -31,33 +34,26 @@ export async function retrieveMemoriesForPrompt(
         totalTokens += estimateTokens(entry.content) + 4;
     }
 
-    // Strategy 1: all fit within budget → return all
+    // Strategy 1: all fit within budget → return all（数量不多时不排序、不发向量请求，省额度）
     if (totalTokens <= budget) {
         return longTermEntries;
     }
 
-    // Strategy 2: vector recall enabled + embedding API configured → vector search, fill by relevance
+    // Strategy 2: 混合检索（关键词 BM25 + 可选向量）+ 遗忘曲线，按分填预算
+    // 向量分：仅当开启向量召回且配了 embedding API 时才发请求
+    let vectorScores: (number | null)[] | null = null;
     const embeddingApiConfig = config.vectorRecallEnabled ? resolveAuxiliaryApiConfig("embeddingApiConfigId") : null;
     if (embeddingApiConfig && resolveEmbeddingModel(embeddingApiConfig)) {
         const queryEmbedding = await generateEmbedding(currentContext, embeddingApiConfig);
         if (queryEmbedding) {
-            const withEmbeddings = longTermEntries.filter(m => m.embedding && m.embedding.length > 0);
-            if (withEmbeddings.length > 0) {
-                const scored = withEmbeddings.map(entry => ({
-                    entry,
-                    score: cosineSimilarity(queryEmbedding, entry.embedding!),
-                }));
-                scored.sort((a, b) => b.score - a.score);
-                return fillByBudget(scored.map(s => s.entry), budget);
-            }
+            vectorScores = longTermEntries.map((m) =>
+                m.embedding && m.embedding.length > 0 ? cosineSimilarity(queryEmbedding, m.embedding) : null,
+            );
         }
     }
 
-    // Strategy 3: no embedding support → newest first, fill by budget
-    const sorted = [...longTermEntries].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-    return fillByBudget(sorted, budget);
+    const ranked = rankMemoriesHybrid({ entries: longTermEntries, query: currentContext, vectorScores });
+    return fillByBudget(ranked, budget);
 }
 
 export async function retrieveCoreMemoriesForPrompt(
