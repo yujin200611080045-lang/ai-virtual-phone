@@ -24,6 +24,8 @@ import {
 import { hydrateChatStorage } from "@/lib/chat-storage";
 import { loadNativeTimeline, type NativeTimelineEntry } from "@/lib/short-term-assembler";
 import { runSummarizationPipeline } from "@/lib/memory-summarizer";
+import { runMemoryDecayArchival } from "@/lib/memory-service";
+import { retentionFactor } from "@/lib/memory-hybrid";
 import { runCoreMemoryPipeline } from "@/lib/core-memory-builder";
 import { resolveAuxiliaryApiConfig, resolveUserIdentity } from "@/lib/settings-storage";
 import { generateEmbedding, resolveEmbeddingModel } from "@/lib/memory-embedding";
@@ -155,6 +157,30 @@ function MemorySettingsSliderItem({
     );
 }
 
+// 情绪坐标 → 表情：效价决定正负，唤醒度决定强弱
+function moodEmoji(valence: number, arousal?: number): string {
+    const a = arousal ?? 0.5;
+    if (valence >= 0.35) return a >= 0.6 ? "😄" : "😌";
+    if (valence <= -0.35) return a >= 0.6 ? "😠" : "😔";
+    return a >= 0.6 ? "😮" : "😐";
+}
+
+// 效价 → 色：正面偏绿、负面偏红、中性偏灰
+function valenceColor(valence: number): string {
+    if (valence >= 0.2) return "#3aa76d";
+    if (valence <= -0.2) return "#d9534f";
+    return "#9aa0aa";
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+    chat: "聊天", group_chat: "群聊", story: "剧情", moments: "朋友圈", checkphone: "查手机",
+    diary: "日记", xiaohongshu: "小红书", interview_magazine: "访谈", cocreate: "共创",
+    game: "小游戏", vn: "视觉小说", adventure: "跑团", custom_app: "自定义应用",
+};
+function sourceLabel(app?: string): string {
+    return (app && SOURCE_LABELS[app]) || "记忆";
+}
+
 function relativeTime(isoStr: string): string {
     const diff = Date.now() - new Date(isoStr).getTime();
     const mins = Math.floor(diff / 60000);
@@ -187,6 +213,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
     const [config, setConfig] = useState<MemoryConfig>(loadMemoryConfig);
     const [characters, setCharacters] = useState<CharacterMemoryInfo[]>([]);
     const [activeTab, setActiveTab] = useState<MemoryTab>("short");
+    const [showArchived, setShowArchived] = useState(false);
     const [coreEntries, setCoreEntries] = useState<MemoryEntry[]>([]);
     const [longTermEntries, setLongTermEntries] = useState<MemoryEntry[]>([]);
     const [shortTermEvents, setShortTermEvents] = useState<NativeTimelineEntry[]>([]);
@@ -272,6 +299,8 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
         setLoading(true);
         try {
             await hydrateChatStorage();
+            // 遗忘落地：进记忆库时先把忘透的旧记忆归档（纯本地）
+            try { await runMemoryDecayArchival(charId, loadMemoryConfig()); } catch { /* ignore */ }
             const [core, lt] = await Promise.all([
                 loadMemoryEntriesByType(charId, "core"),
                 loadMemoryEntriesByType(charId, "long_term"),
@@ -562,6 +591,18 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
         }
     };
 
+    const toggleArchive = async (entry: MemoryEntry) => {
+        try {
+            const archived = entry.metadata?.archived === true;
+            await saveMemoryEntry({
+                ...entry,
+                metadata: { ...(entry.metadata || {}), archived: !archived, ...(archived ? {} : { archivedAt: new Date().toISOString(), archivedReason: "manual" }) },
+                updatedAt: new Date().toISOString(),
+            });
+            if (selectedCharId) await loadDetailData(selectedCharId);
+        } catch { /* ignore */ }
+    };
+
     const renderMemoryEntries = (type: MemoryEntry["type"], entries: MemoryEntry[], emptyText: string) => {
         const label = type === "core" ? "核心记忆" : "长期记忆";
         return (
@@ -604,6 +645,10 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                         <div
                             key={entry.id}
                             className={`g-card memory-report-card${entryMenuId === entry.id ? " is-menu-open" : ""}`}
+                            style={{
+                                ...(entry.metadata?.archived ? { opacity: 0.5 } : {}),
+                                ...(typeof entry.valence === "number" ? { borderLeft: `3px solid ${valenceColor(entry.valence)}` } : {}),
+                            }}
                             onClick={() => {
                                 if (entryMenuId) {
                                     setEntryMenuId(null);
@@ -635,6 +680,12 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                                     <Edit3 size={13} />
                                                     <span>编辑</span>
                                                 </button>
+                                                {type === "long_term" && (
+                                                    <button onClick={() => { setEntryMenuId(null); void toggleArchive(entry); }}>
+                                                        <Archive size={13} />
+                                                        <span>{entry.metadata?.archived ? "取消归档" : "归档"}</span>
+                                                    </button>
+                                                )}
                                                 <button
                                                     className="is-danger"
                                                     onClick={() => {
@@ -650,6 +701,34 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                     </div>
                                 </div>
                             </div>
+                            {(entry.title || typeof entry.valence === "number" || (entry.tags && entry.tags.length > 0)) && (
+                                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, margin: "2px 0 8px" }}>
+                                    {typeof entry.valence === "number" && (
+                                        <span title={`情绪 ${entry.valence.toFixed(2)} / 强度 ${(entry.arousal ?? 0).toFixed(2)}`} style={{ fontSize: 14 }}>
+                                            {moodEmoji(entry.valence, entry.arousal)}
+                                        </span>
+                                    )}
+                                    {entry.title && <span className="ts-12" style={{ fontWeight: 600 }}>{entry.title}</span>}
+                                    {(entry.tags || []).map((t) => (
+                                        <span key={t} className="ts-11" style={{ padding: "1px 8px", borderRadius: 999, background: "var(--c-input, rgba(0,0,0,0.06))", color: "var(--c-text-secondary, #888)" }}>{t}</span>
+                                    ))}
+                                </div>
+                            )}
+                            {type === "long_term" && (() => {
+                                const r = retentionFactor(entry);
+                                return (
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 8px" }}>
+                                        <span className="ts-11 text-secondary" style={{ whiteSpace: "nowrap" }}>记忆强度</span>
+                                        <span style={{ flex: 1, height: 4, borderRadius: 999, background: "var(--c-input, rgba(0,0,0,0.08))", overflow: "hidden", maxWidth: 120 }}>
+                                            <span style={{ display: "block", height: "100%", width: `${Math.round(r * 100)}%`, background: r > 0.5 ? "#3aa76d" : r > 0.2 ? "#e0a020" : "#c96", borderRadius: 999 }} />
+                                        </span>
+                                        <span className="ts-11 text-secondary" style={{ whiteSpace: "nowrap" }}>
+                                            {Math.round(r * 100)}% · 来源 {sourceLabel(entry.sourceApp)}
+                                            {entry.metadata?.archived ? " · 已归档" : ""}
+                                        </span>
+                                    </div>
+                                );
+                            })()}
                             <div className="ts-12 leading-[1.7]">
                                 {expandedId === entry.id
                                     ? entry.content
@@ -701,7 +780,22 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                         renderMemoryEntries("core", coreEntries, "暂无核心记忆。长期记忆累计到设定条数后会自动提炼，也可以手动新增。")
                     ) : (
                         /* ── Long-term: Summarized Memories ── */
-                        renderMemoryEntries("long_term", longTermEntries, "暂无长期记忆。点击设置页的手动总结，或直接新增一条记忆。")
+                        <>
+                            {longTermEntries.some(e => e.metadata?.archived) && (
+                                <button
+                                    className="ts-12 text-secondary"
+                                    style={{ display: "block", margin: "0 0 10px auto", padding: "4px 10px", borderRadius: 999, border: "1px solid var(--c-border, rgba(0,0,0,0.1))", background: "transparent" }}
+                                    onClick={() => setShowArchived(v => !v)}
+                                >
+                                    {showArchived ? "隐藏已归档" : `显示已归档（${longTermEntries.filter(e => e.metadata?.archived).length}）`}
+                                </button>
+                            )}
+                            {renderMemoryEntries(
+                                "long_term",
+                                showArchived ? longTermEntries : longTermEntries.filter(e => !e.metadata?.archived),
+                                "暂无长期记忆。点击设置页的手动总结，或直接新增一条记忆。",
+                            )}
+                        </>
                     )}
                     </MemoryDetailBoundary>
                 </div>

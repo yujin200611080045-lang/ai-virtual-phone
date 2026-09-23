@@ -14,10 +14,18 @@ export type MemoryEntry = {
     updatedAt: string;
     sourceMessageIds?: string[];
     metadata?: Record<string, unknown>;
+    // —— Ombre 式结构化字段（第一批：情绪坐标 + 标签 + 一句话概括，全部可选、向后兼容）——
+    title?: string;             // 一句话概括
+    tags?: string[];            // 关键词标签
+    valence?: number;           // 情绪效价 -1(负面) ~ 1(正面)
+    arousal?: number;           // 情绪唤醒度/强度 0(平静) ~ 1(激烈)
 };
 
 export type MemoryConfig = {
     autoSummarizeEnabled: boolean;          // whether auto-summarization runs after N events
+    emotionTaggingEnabled?: boolean;        // 记忆情绪打标（valence/arousal/tags/title），折进同一次总结调用、不额外花额度
+    autoArchiveEnabled?: boolean;           // 遗忘落地：保持率极低且不重要的长期记忆自动归档（不再主动召回，仍可搜/恢复）
+    archiveRetentionThreshold?: number;     // 触发自动归档的保持率阈值（默认 0.12）
     autoBuildCoreEnabled: boolean;          // whether core memories rebuild after long-term summarization
     vectorRecallEnabled: boolean;           // whether vector embedding recall is used for memory retrieval
     maxLongTermEntries: number;
@@ -105,6 +113,9 @@ export const DEFAULT_CORE_MEMORY_PROMPT = `你是一个核心记忆整理助手�
 
 export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
     autoSummarizeEnabled: true,
+    emotionTaggingEnabled: true,
+    autoArchiveEnabled: true,
+    archiveRetentionThreshold: 0.12,
     autoBuildCoreEnabled: true,
     vectorRecallEnabled: true,
     maxLongTermEntries: 500,
