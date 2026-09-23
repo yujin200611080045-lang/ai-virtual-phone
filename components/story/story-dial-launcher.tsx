@@ -14,68 +14,55 @@ interface StoryDialLauncherProps {
   onOpenCharacter: (id: string) => void;
   onOpenGroup: (id: string) => void;
   onEditGroup: (id: string) => void;
-  onCreateGroup: (name: string, memberIds: string[], presetId: string) => void;
+  onSaveGroup: (name: string, memberIds: string[], presetId: string, avatar: string) => void;
 }
 
-// 唱片盘几何参数（相对容器尺寸）
-const ANGLE_STEP = 0.42;      // 相邻角色的角间距（弧度）
-const VISIBLE_HALF = 1.32;    // 单侧可见角度上限
-const FOCUS_SCALE = 1.5;
-const SCALE_FALL = 0.62;
-const MIN_SCALE = 0.6;
+const ANGLE_STEP = 0.5;       // 相邻角色角间距（弧度）
+const VISIBLE_HALF = 1.28;    // 单侧可见角度
+const FOCUS_SCALE = 1.42;
+const SCALE_FALL = 0.6;
+const MIN_SCALE = 0.58;
+const AVATAR_PX = 60;
+const LONG_PRESS_MS = 450;
+const DOUBLE_TAP_MS = 260;
 
-// 凹槽：把小数部分向整数聚拢，制造“卡进槽里”的手感
 function applyDetent(f: number): number {
   const n = Math.floor(f);
   const t = f - n;
   const k = 0.24;
   return n + (t - (k * Math.sin(2 * Math.PI * t)) / (2 * Math.PI));
 }
+function clamp(v: number, lo: number, hi: number): number { return Math.max(lo, Math.min(hi, v)); }
 
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
-}
-
-// 平滑蛇形路径（Catmull-Rom → 三次贝塞尔），避免生硬折线
-function buildSnakePath(points: { x: number; y: number }[]): string {
-  if (points.length < 2) return "";
-  const d: string[] = [`M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`];
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i - 1] || points[i];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[i + 2] || p2;
-    const c1x = p1.x + (p2.x - p0.x) / 6;
-    const c1y = p1.y + (p2.y - p0.y) / 6;
-    const c2x = p2.x - (p3.x - p1.x) / 6;
-    const c2y = p2.y - (p3.y - p1.y) / 6;
-    d.push(`C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`);
-  }
-  return d.join(" ");
-}
+type LayoutItem = { id: string; index: number; x: number; y: number; r: number };
 
 export function StoryDialLauncher({
   characters, groups, presets,
-  onOpenCharacter, onOpenGroup, onEditGroup, onCreateGroup,
+  onOpenCharacter, onOpenGroup, onEditGroup, onSaveGroup,
 }: StoryDialLauncherProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ w: 390, h: 640 });
-  const [mode, setMode] = useState<"dial" | "create">("dial");
+  const [mode, setMode] = useState<"single" | "build">("single");
   const [showGroups, setShowGroups] = useState(false);
 
-  // 唱片盘当前焦点（小数）
   const [f, setF] = useState(0);
   const fRef = useRef(0);
-  const dragRef = useRef<{ startY: number; startF: number; active: boolean; moved: boolean }>({ startY: 0, startF: 0, active: false, moved: false });
   const [dragging, setDragging] = useState(false);
   const rafRef = useRef<number | null>(null);
   const lastFocusRef = useRef(0);
   const [pop, setPop] = useState<{ i: number; t: number } | null>(null);
 
-  // 群像创建态
   const [selected, setSelected] = useState<string[]>([]);
-  const [presetId, setPresetId] = useState("");
-  const [groupName, setGroupName] = useState("");
+  const modeRef = useRef<"single" | "build">("single");
+  const selectedRef = useRef<string[]>([]);
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
+
+  // 保存群组弹窗
+  const [popupOpen, setPopupOpen] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [draftPreset, setDraftPreset] = useState("");
+  const [draftAvatar, setDraftAvatar] = useState("");
 
   const N = characters.length;
 
@@ -89,275 +76,305 @@ export function StoryDialLauncher({
     return () => window.removeEventListener("resize", measure);
   }, []);
 
-  const setFocus = useCallback((next: number) => {
+  const setFocus = useCallback((next: number, isDrag: boolean) => {
     const clamped = clamp(next, 0, Math.max(0, N - 1));
     fRef.current = clamped;
     setF(clamped);
     const idx = Math.round(clamped);
     if (idx !== lastFocusRef.current) {
       lastFocusRef.current = idx;
-      if (dragRef.current.active) {
+      if (isDrag) {
         try { navigator.vibrate?.(6); } catch { /* ignore */ }
         setPop({ i: idx, t: Date.now() });
       }
     }
   }, [N]);
 
-  const cancelRaf = () => {
-    if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-  };
-
-  // 松手/点击后弹到最近的槽（带轻微回弹）
+  const cancelRaf = () => { if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; } };
   const snapTo = useCallback((target: number) => {
     cancelRaf();
     const tgt = clamp(target, 0, Math.max(0, N - 1));
     const step = () => {
       const cur = fRef.current;
       const diff = tgt - cur;
-      if (Math.abs(diff) < 0.001) {
-        setFocus(tgt);
-        rafRef.current = null;
-        return;
-      }
-      setFocus(cur + diff * 0.22);
+      if (Math.abs(diff) < 0.001) { setFocus(tgt, false); rafRef.current = null; return; }
+      setFocus(cur + diff * 0.22, false);
       rafRef.current = requestAnimationFrame(step);
     };
     rafRef.current = requestAnimationFrame(step);
   }, [N, setFocus]);
-
   useEffect(() => () => cancelRaf(), []);
 
-  // 唱片盘几何
-  const pivotX = size.w * 1.02;
+  // 圆心在左边
+  const pivotX = -size.w * 0.12;
   const pivotY = size.h * 0.5;
-  const Rx = size.w * 0.72;
-  const Ry = size.h * 0.42;
+  const Rx = size.w * 0.6;
+  const Ry = size.h * 0.36;
   const perItemPx = Ry * Math.sin(ANGLE_STEP) || 1;
+  const discR = Rx + 40;              // 磨砂盘半径
+  const interiorR = Rx * 0.8;         // 判定“圆盘内部”的半径（避开角色所在的外缘）
 
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (mode !== "dial") return;
-    cancelRaf();
-    dragRef.current = { startY: e.clientY, startF: fRef.current, active: true, moved: false };
-    setDragging(true);
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    const d = dragRef.current;
-    if (!d.active) return;
-    const dy = e.clientY - d.startY;
-    if (Math.abs(dy) > 4) d.moved = true;
-    setFocus(d.startF - dy / perItemPx);
-  };
-  const endDrag = () => {
-    const d = dragRef.current;
-    if (!d.active) return;
-    d.active = false;
-    setDragging(false);
-    snapTo(Math.round(fRef.current));
-  };
-
-  const focusIndex = Math.round(f);
+  // 计算当前可见角色的屏幕位置，供命中测试
+  const layoutRef = useRef<LayoutItem[]>([]);
   const detented = applyDetent(f);
-
-  const enterCreate = useCallback(() => {
-    setSelected([]);
-    setPresetId("");
-    setGroupName("");
-    setMode("create");
-  }, []);
-
-  // 中心按钮：单击=选已有群组，双击=融化成线建群组
-  const btnClickRef = useRef<number | null>(null);
-  const onCenterButton = () => {
-    if (btnClickRef.current != null) {
-      window.clearTimeout(btnClickRef.current);
-      btnClickRef.current = null;
-      enterCreate();
-      return;
+  const focusIndex = Math.round(f);
+  {
+    const items: LayoutItem[] = [];
+    for (let i = 0; i < N; i++) {
+      const a = (i - detented) * ANGLE_STEP;
+      if (Math.abs(a) > VISIBLE_HALF + ANGLE_STEP) continue;
+      const x = pivotX + Rx * Math.cos(a);
+      const y = pivotY + Ry * Math.sin(a);
+      const scale = clamp(FOCUS_SCALE - Math.abs(a) * SCALE_FALL, MIN_SCALE, FOCUS_SCALE);
+      items.push({ id: characters[i].id, index: i, x, y, r: (AVATAR_PX * scale) / 2 + 12 });
     }
-    btnClickRef.current = window.setTimeout(() => {
-      btnClickRef.current = null;
-      setShowGroups(true);
-    }, 250);
+    layoutRef.current = items;
+  }
+
+  const hitAvatar = (px: number, py: number): LayoutItem | null => {
+    let best: LayoutItem | null = null;
+    let bestD = Infinity;
+    for (const it of layoutRef.current) {
+      const d = Math.hypot(px - it.x, py - it.y);
+      if (d < it.r && d < bestD) { best = it; bestD = d; }
+    }
+    return best;
+  };
+  const isInterior = (px: number, py: number) => {
+    const dx = (px - pivotX) / 1;
+    const dy = (py - pivotY) / 1;
+    return Math.hypot(dx, dy) < interiorR;
   };
 
   const toggleSelected = (id: string) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  // 蛇形线上的点
-  const lineMargin = 52;
-  const lineSpan = Math.max(size.w - lineMargin * 2, 1);
-  const lineStep = N > 1 ? lineSpan / (N - 1) : 0;
-  const linePoints = characters.map((_, i) => ({
-    x: lineMargin + i * lineStep,
-    y: size.h * 0.44 + Math.sin(i * 0.85 + 0.4) * size.h * 0.07,
-  }));
-  const snakePath = buildSnakePath(linePoints);
+  const openSavePopup = () => {
+    setDraftName("");
+    setDraftPreset("");
+    setDraftAvatar("");
+    setPopupOpen(true);
+  };
+
+  // 手势
+  const gestureRef = useRef<{ startX: number; startY: number; startF: number; moved: boolean; interiorStart: boolean; }>(
+    { startX: 0, startY: 0, startF: 0, moved: false, interiorStart: false });
+  const longPressTimer = useRef<number | null>(null);
+  const longPressFired = useRef(false);
+  const tapTimer = useRef<number | null>(null);
+
+  const clearLongPress = () => { if (longPressTimer.current != null) { window.clearTimeout(longPressTimer.current); longPressTimer.current = null; } };
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    const px = e.clientX - (rect?.left ?? 0);
+    const py = e.clientY - (rect?.top ?? 0);
+    cancelRaf();
+    longPressFired.current = false;
+    const interiorStart = isInterior(px, py) && !hitAvatar(px, py);
+    gestureRef.current = { startX: px, startY: py, startF: fRef.current, moved: false, interiorStart };
+    setDragging(true);
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    // 长按（只在圆盘内部、单人态触发建群）
+    clearLongPress();
+    if (interiorStart) {
+      longPressTimer.current = window.setTimeout(() => {
+        if (gestureRef.current.moved) return;
+        longPressFired.current = true;
+        try { navigator.vibrate?.(12); } catch { /* ignore */ }
+        if (modeRef.current === "single") { setMode("build"); setSelected([]); }
+      }, LONG_PRESS_MS);
+    }
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const g = gestureRef.current;
+    const rect = containerRef.current?.getBoundingClientRect();
+    const py = e.clientY - (rect?.top ?? 0);
+    const px = e.clientX - (rect?.left ?? 0);
+    const dy = py - g.startY;
+    const dx = px - g.startX;
+    if (!g.moved && Math.hypot(dx, dy) > 6) { g.moved = true; clearLongPress(); }
+    if (g.moved) setFocus(g.startF - dy / perItemPx, true);
+  };
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    clearLongPress();
+    const g = gestureRef.current;
+    setDragging(false);
+    if (longPressFired.current) { longPressFired.current = false; return; }
+    if (g.moved) { snapTo(Math.round(fRef.current)); return; }
+
+    // 纯点击
+    const rect = containerRef.current?.getBoundingClientRect();
+    const px = e.clientX - (rect?.left ?? 0);
+    const py = e.clientY - (rect?.top ?? 0);
+    const hit = hitAvatar(px, py);
+
+    if (hit) {
+      if (modeRef.current === "build") { toggleSelected(hit.id); return; }
+      if (hit.index === Math.round(fRef.current)) onOpenCharacter(hit.id);
+      else snapTo(hit.index);
+      return;
+    }
+
+    if (!isInterior(px, py)) return;
+
+    // 圆盘内部空白
+    if (modeRef.current === "build") {
+      if (selectedRef.current.length >= 1) openSavePopup();
+      else { setMode("single"); setSelected([]); }
+      return;
+    }
+    // 单人态：单击圆盘内部无操作；双击 = 进入已有群组
+    if (tapTimer.current != null) {
+      window.clearTimeout(tapTimer.current); tapTimer.current = null;
+      setShowGroups(true);
+    } else {
+      tapTimer.current = window.setTimeout(() => { tapTimer.current = null; }, DOUBLE_TAP_MS);
+    }
+  };
+
+  const onFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setDraftAvatar(typeof reader.result === "string" ? reader.result : "");
+    reader.readAsDataURL(file);
+  };
+
+  const confirmSave = () => {
+    if (selected.length < 2) return;
+    onSaveGroup(draftName, selected, draftPreset, draftAvatar);
+    setPopupOpen(false);
+    setSelected([]); // 保存后停留在建群页，清空以便继续选下一组
+  };
 
   return (
     <div className="story-dial" ref={containerRef}>
-      {/* 磨砂唱片盘背景 */}
       <div
-        className={`story-dial-disc${mode === "create" ? " is-melted" : ""}`}
-        style={{
-          left: pivotX - Rx * 1.18,
-          top: pivotY - Ry * 1.18,
-          width: Rx * 2.36,
-          height: Ry * 2.36,
-        }}
+        className="story-dial-disc"
+        style={{ left: pivotX - discR, top: pivotY - discR, width: discR * 2, height: discR * 2 }}
         aria-hidden="true"
       />
 
-      {/* 蛇形连线（仅群像态） */}
-      {mode === "create" ? (
-        <svg className="story-dial-line-svg" width={size.w} height={size.h} aria-hidden="true">
-          <path d={snakePath} className="story-dial-line-path" />
-        </svg>
-      ) : null}
-
-      {/* 角色 */}
       <div
         className="story-dial-stage"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
+        onPointerUp={onPointerUp}
+        onPointerCancel={() => { clearLongPress(); setDragging(false); }}
       >
         {characters.map((c, i) => {
-          let x: number, y: number, scale: number, opacity: number, z: number, hidden = false;
-          if (mode === "dial") {
-            const a = (i - detented) * ANGLE_STEP;
-            if (Math.abs(a) > VISIBLE_HALF + ANGLE_STEP) hidden = true;
-            x = pivotX - Rx * Math.cos(a);
-            y = pivotY + Ry * Math.sin(a);
-            scale = clamp(FOCUS_SCALE - Math.abs(a) * SCALE_FALL, MIN_SCALE, FOCUS_SCALE);
-            opacity = Math.abs(a) > VISIBLE_HALF ? clamp(1 - (Math.abs(a) - VISIBLE_HALF) / ANGLE_STEP, 0, 1) : 1;
-            z = Math.round(120 - Math.abs(a) * 40);
-          } else {
-            const p = linePoints[i];
-            x = p.x; y = p.y; scale = 0.92; opacity = 1; z = 40;
-          }
-          if (hidden) return null;
-          const isFocus = mode === "dial" && i === focusIndex;
-          const isSelected = mode === "create" && selected.includes(c.id);
+          const a = (i - detented) * ANGLE_STEP;
+          if (Math.abs(a) > VISIBLE_HALF + ANGLE_STEP) return null;
+          const x = pivotX + Rx * Math.cos(a);
+          const y = pivotY + Ry * Math.sin(a);
+          const scale = clamp(FOCUS_SCALE - Math.abs(a) * SCALE_FALL, MIN_SCALE, FOCUS_SCALE);
+          const opacity = Math.abs(a) > VISIBLE_HALF ? clamp(1 - (Math.abs(a) - VISIBLE_HALF) / ANGLE_STEP, 0, 1) : 1;
+          const z = Math.round(120 - Math.abs(a) * 40);
+          const isFocus = mode === "single" && i === focusIndex;
+          const isSelected = mode === "build" && selected.includes(c.id);
           const popping = pop && pop.i === i && Date.now() - pop.t < 260;
           return (
-            <button
+            <div
               key={c.id}
               className={`story-dial-avatar${isFocus ? " is-focus" : ""}${isSelected ? " is-selected" : ""}${popping ? " is-pop" : ""}`}
               style={{
-                left: x,
-                top: y,
+                left: x, top: y,
                 transform: `translate(-50%, -50%) scale(${scale.toFixed(3)})`,
-                opacity,
-                zIndex: z,
-                transition: dragging && mode === "dial"
-                  ? "none"
-                  : `transform 620ms cubic-bezier(.34,1.2,.32,1) ${mode === "create" ? i * 45 : 0}ms, opacity 400ms ease`,
-              }}
-              onClick={() => {
-                if (dragRef.current.moved) return;
-                if (mode === "dial") {
-                  if (i === focusIndex) onOpenCharacter(c.id);
-                  else snapTo(i);
-                } else {
-                  toggleSelected(c.id);
-                }
+                opacity, zIndex: z,
+                transition: dragging ? "none" : "transform 480ms cubic-bezier(.34,1.2,.32,1), opacity 320ms ease",
               }}
             >
               <span className="story-dial-avatar-inner">
                 <Avatar src={c.avatar || undefined} name={c.name} size="lg" />
               </span>
               {(isFocus || isSelected) ? <span className="story-dial-avatar-name">{c.name}</span> : null}
-            </button>
+            </div>
           );
         })}
       </div>
 
-      {/* 中心按钮（唱片轴心） */}
-      {mode === "dial" ? (
-        <button className="story-dial-center-btn" onClick={onCenterButton}>
-          <span className="story-dial-center-dot" />
-          <span className="story-dial-center-label">群组</span>
-          <span className="story-dial-center-hint">单击选群 · 双击建群</span>
-        </button>
-      ) : null}
+      {/* 提示条 */}
+      <div className="story-dial-foot">
+        {mode === "build"
+          ? (selected.length >= 1
+              ? `已选 ${selected.length} 人 · 点圆盘内部保存群组`
+              : "点角色头像选人 · 点圆盘内部返回单人")
+          : (N === 0 ? "还没有角色卡" : `点中间「${characters[focusIndex]?.name ?? ""}」开始 · 长按圆盘建群 · 双击圆盘进群组`)}
+      </div>
 
-      {/* 单人态底部提示 */}
-      {mode === "dial" ? (
-        <div className="story-dial-foot">
-          {N === 0 ? "还没有角色卡" : `滑动转盘 · 点中间的「${characters[focusIndex]?.name ?? ""}」开始`}
+      {/* 保存群组弹窗（黑白） */}
+      {popupOpen ? (
+        <div className="story-modal-overlay" onClick={() => setPopupOpen(false)}>
+          <div className="story-group-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="story-group-modal-title">新建剧情群组（{selected.length} 人）</div>
+
+            <div className="story-dial-avatar-pick">
+              <label className="story-dial-avatar-drop">
+                {draftAvatar ? <img src={draftAvatar} alt="" /> : <span>＋<br />头像</span>}
+                <input type="file" accept="image/*" onChange={onFilePick} hidden />
+              </label>
+              <input
+                className="story-group-modal-input"
+                style={{ flex: 1 }}
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
+                placeholder="群组名称"
+              />
+            </div>
+
+            <label className="story-group-modal-label">预设</label>
+            <div className="story-group-modal-lead">
+              <button className="story-group-modal-lead-chip" data-active={!draftPreset ? "true" : undefined} onClick={() => setDraftPreset("")}>跟随默认</button>
+              {presets.map((p) => (
+                <button key={p.id} className="story-group-modal-lead-chip" data-active={draftPreset === p.id ? "true" : undefined} onClick={() => setDraftPreset(p.id)}>{p.name}</button>
+              ))}
+            </div>
+
+            <div className="story-group-modal-actions">
+              <span />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="story-group-modal-btn" onClick={() => setPopupOpen(false)}>取消</button>
+                <button className="story-group-modal-btn story-group-modal-primary" onClick={confirmSave}>保存</button>
+              </div>
+            </div>
+          </div>
         </div>
       ) : null}
 
-      {/* 群像创建底部面板 */}
-      {mode === "create" ? (
-        <div className="story-dial-sheet">
-          <div className="story-dial-sheet-row">
-            <input
-              className="story-dial-name"
-              value={groupName}
-              onChange={(e) => setGroupName(e.target.value)}
-              placeholder="群组名称（可留空）"
-            />
-            <button className="story-dial-sheet-back" onClick={() => setMode("dial")}>返回转盘</button>
-          </div>
-          <div className="story-dial-preset-label">预设</div>
-          <div className="story-dial-presets">
-            <button
-              className="story-dial-preset-chip"
-              data-active={!presetId ? "true" : undefined}
-              onClick={() => setPresetId("")}
-            >跟随默认</button>
-            {presets.map((p) => (
-              <button
-                key={p.id}
-                className="story-dial-preset-chip"
-                data-active={presetId === p.id ? "true" : undefined}
-                onClick={() => setPresetId(p.id)}
-              >{p.name}</button>
-            ))}
-          </div>
-          <button
-            className="story-dial-create-btn"
-            disabled={selected.length < 2}
-            onClick={() => onCreateGroup(groupName, selected, presetId)}
-          >
-            {selected.length < 2 ? "至少选 2 个角色" : `创建并开始（${selected.length} 人）`}
-          </button>
-        </div>
-      ) : null}
-
-      {/* 已有群组选择面板（单击中心按钮） */}
+      {/* 已有群组（双击圆盘） */}
       {showGroups ? (
         <div className="story-dial-groups-overlay" onClick={() => setShowGroups(false)}>
           <div className="story-dial-groups-sheet" onClick={(e) => e.stopPropagation()}>
             <div className="story-dial-groups-title">进入剧情群组</div>
             {groups.length === 0 ? (
-              <div className="story-dial-groups-empty">还没有群组。双击中间的「群组」按钮，把几个角色连成一条线来创建。</div>
+              <div className="story-dial-groups-empty">还没有群组。长按圆盘内部进入建群，选好角色再点圆盘保存。</div>
             ) : (
               groups.map((g) => {
                 const members = g.memberIds.map((id) => characters.find((c) => c.id === id)).filter(Boolean) as Character[];
                 return (
                   <div key={g.id} className="story-dial-group-row" onClick={() => { setShowGroups(false); onOpenGroup(g.id); }}>
-                    <div className="story-dial-group-avatars">
-                      {members.slice(0, 4).map((c, i) => (
-                        <div key={c.id} className="story-dial-group-ava" style={{ marginLeft: i === 0 ? 0 : -10, zIndex: 10 - i }}>
-                          {c.avatar ? <img src={c.avatar} alt="" /> : <span>{c.name.trim().charAt(0) || "书"}</span>}
-                        </div>
-                      ))}
-                    </div>
+                    {g.avatar ? (
+                      <div className="story-dial-group-cover"><img src={g.avatar} alt="" /></div>
+                    ) : (
+                      <div className="story-dial-group-avatars">
+                        {members.slice(0, 4).map((c, i) => (
+                          <div key={c.id} className="story-dial-group-ava" style={{ marginLeft: i === 0 ? 0 : -10, zIndex: 10 - i }}>
+                            {c.avatar ? <img src={c.avatar} alt="" /> : <span>{c.name.trim().charAt(0) || "书"}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="story-dial-group-body">
                       <div className="story-dial-group-name">{g.name}</div>
                       <div className="story-dial-group-sub">{members.map((c) => c.name).join("、")}</div>
                     </div>
-                    <span
-                      className="story-dial-group-edit"
-                      role="button"
-                      tabIndex={0}
-                      onClick={(e) => { e.stopPropagation(); setShowGroups(false); onEditGroup(g.id); }}
-                    >编辑</span>
+                    <span className="story-dial-group-edit" role="button" tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); setShowGroups(false); onEditGroup(g.id); }}>编辑</span>
                   </div>
                 );
               })

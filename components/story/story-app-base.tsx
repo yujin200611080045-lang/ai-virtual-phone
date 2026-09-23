@@ -424,13 +424,12 @@ export function StoryApp({ onClose }: StoryAppProps) {
     setDrawerOpen(false);
   }, [loadThreadInto]);
 
-  const createAndOpenGroup = useCallback((name: string, memberIds: string[], presetId: string) => {
+  const saveGroupStay = useCallback((name: string, memberIds: string[], presetId: string, avatar: string) => {
     const members = Array.from(new Set(memberIds.filter(Boolean)));
     if (members.length < 2) return;
-    const g = createStoryGroup({ name: name.trim() || "剧情群组", memberIds: members, presetId: presetId || undefined });
+    createStoryGroup({ name: name.trim() || "剧情群组", memberIds: members, presetId: presetId || undefined, avatar: avatar || undefined });
     setStorageVersion((value) => value + 1);
-    openGroup(g.id);
-  }, [openGroup]);
+  }, []);
 
   const backToLauncher = useCallback(() => {
     setShowLauncher(true);
@@ -1099,7 +1098,7 @@ export function StoryApp({ onClose }: StoryAppProps) {
               onOpenCharacter={openCharacter}
               onOpenGroup={openGroup}
               onEditGroup={(id) => openGroupModal(id)}
-              onCreateGroup={createAndOpenGroup}
+              onSaveGroup={saveGroupStay}
             />
           </div>
         </div>

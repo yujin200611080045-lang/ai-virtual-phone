@@ -1210,20 +1210,16 @@
             radial-gradient(120% 80% at 20% 42%, #f3f5f9 0%, #eef0f5 45%, #e7e9ef 100%);
           touch-action: none;
         }
-        /* 磨砂唱片盘 */
+        /* 磨砂盘：纯色毛玻璃，无纹路 */
         .story-dial-disc {
           position: absolute; border-radius: 50%;
-          background:
-            repeating-radial-gradient(circle at 50% 50%, rgba(20,22,28,0.05) 0 1.5px, rgba(20,22,28,0) 1.5px 8px),
-            radial-gradient(circle at 42% 40%, rgba(255,255,255,0.55), rgba(255,255,255,0.16) 55%, rgba(120,124,140,0.10) 100%);
-          box-shadow: 0 24px 70px rgba(40,44,60,0.18), inset 0 0 60px rgba(255,255,255,0.35);
-          backdrop-filter: blur(14px) saturate(1.15);
-          -webkit-backdrop-filter: blur(14px) saturate(1.15);
+          background: rgba(255,255,255,0.28);
+          box-shadow: 0 24px 70px rgba(40,44,60,0.16), inset 0 0 60px rgba(255,255,255,0.30);
+          backdrop-filter: blur(20px) saturate(1.2);
+          -webkit-backdrop-filter: blur(20px) saturate(1.2);
           border: 1px solid rgba(255,255,255,0.5);
-          transition: opacity 640ms ease, transform 700ms cubic-bezier(.6,.05,.2,1), filter 640ms ease;
           pointer-events: none;
         }
-        .story-dial-disc.is-melted { opacity: 0; transform: scale(1.12); filter: blur(10px); }
 
         .story-dial-line-svg { position: absolute; inset: 0; pointer-events: none; }
         .story-dial-line-path {
@@ -1351,3 +1347,18 @@
           border: 1px solid #ddd; background: #fff; color: #444; cursor: pointer;
           font-size: calc(13px*var(--app-text-scale,1));
         }
+
+        /* 群组保存弹窗：头像选择 */
+        .story-dial-avatar-pick { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+        .story-dial-avatar-drop {
+          width: 60px; height: 60px; border-radius: 14px; flex-shrink: 0; overflow: hidden;
+          border: 1px dashed #cfcfcf; background: #fafafa; cursor: pointer;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 11px; color: #9a9a9a; text-align: center; line-height: 1.25;
+        }
+        .story-dial-avatar-drop img { width: 100%; height: 100%; object-fit: cover; }
+        /* 已有群组封面（有自定义头像时） */
+        .story-dial-group-cover {
+          width: 44px; height: 44px; border-radius: 12px; overflow: hidden; flex-shrink: 0; background: #f0f0f0;
+        }
+        .story-dial-group-cover img { width: 100%; height: 100%; object-fit: cover; }
