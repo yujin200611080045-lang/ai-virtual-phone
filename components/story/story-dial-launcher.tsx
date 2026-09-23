@@ -124,9 +124,9 @@ export function StoryDialLauncher({
   useEffect(() => { resetFocus(); }, [deck, mode, resetFocus]);
 
   // 圆心贴左边缘；用正圆，让头像正好排在盘的边上
-  const pivotX = -size.w * 0.04;
-  const pivotY = size.h * 0.56;       // 略往下
-  const R = Math.min(size.w * 0.67, size.h * 0.5);
+  const pivotX = -size.w * 0.10;
+  const pivotY = size.h * 0.52;
+  const R = Math.min(size.w * 0.72, size.h * 0.54);
   const perItemPx = R * Math.sin(ANGLE_STEP) || 1;
   const discR = R + 34;               // 盘沿刚好落在头像外缘（头像贴边）
   const interiorR = R * 0.72;         // 手势区=空心内圈（无头像），露在屏幕左侧
