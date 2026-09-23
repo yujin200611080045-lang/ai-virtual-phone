@@ -24,6 +24,44 @@ import { maybeRunCoreMemoryPipeline } from "./core-memory-builder";
 /** Per-character lock to prevent concurrent summarization. */
 const summarizingSet = new Set<string>();
 
+// —— 情绪打标：折进同一次总结调用，不额外发请求 ——
+const EMOTION_TAG_INSTRUCTION = `
+
+————
+在总结正文之后，另起一行，仅输出一行紧凑 JSON（不要任何额外解释或代码块围栏），描述这段记忆的情绪与标签：
+{"title":"一句话概括(≤14字)","tags":["2-5个关键词"],"valence":情绪效价从-1(负面)到1(正面)的小数,"arousal":情绪强度从0(平静)到1(激烈)的小数}`;
+
+function appendEmotionTagInstruction(prompt: string): string {
+    return loadMemoryConfig().emotionTaggingEnabled === false ? prompt : prompt + EMOTION_TAG_INSTRUCTION;
+}
+
+type EmotionTag = { title?: string; tags?: string[]; valence?: number; arousal?: number };
+
+/** 从总结原文里剥出末尾那行标签 JSON，返回干净正文 + 情绪字段。解析失败则原样返回。 */
+function parseTaggedSummary(raw: string): { content: string; tag: EmotionTag } {
+    const text = raw.trim();
+    // 找最后一个 { ... } 块
+    const match = text.match(/\{[\s\S]*\}\s*$/);
+    if (!match) return { content: text, tag: {} };
+    try {
+        const parsed = JSON.parse(match[0]);
+        const clamp = (n: unknown, lo: number, hi: number): number | undefined => {
+            const v = typeof n === "number" ? n : Number(n);
+            return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : undefined;
+        };
+        const tag: EmotionTag = {
+            title: typeof parsed.title === "string" ? parsed.title.trim().slice(0, 40) || undefined : undefined,
+            tags: Array.isArray(parsed.tags) ? parsed.tags.map((t: unknown) => String(t).trim()).filter(Boolean).slice(0, 6) : undefined,
+            valence: clamp(parsed.valence, -1, 1),
+            arousal: clamp(parsed.arousal, 0, 1),
+        };
+        const content = text.slice(0, match.index).trim() || text;
+        return { content, tag };
+    } catch {
+        return { content: text, tag: {} };
+    }
+}
+
 /**
  * Check if summarization should run based on event counter, then execute.
  * Trigger: counter >= summarizationEventInterval.
@@ -101,10 +139,10 @@ export async function runSummarizationPipeline(
         .replace(/\{\{latest\}\}/gi, latest)
         .replace(/\{\{events\}\}/gi, eventsText);
 
-    // Call LLM for summarization — compatible with all providers
+    // Call LLM for summarization — compatible with all providers（情绪打标折进本次调用）
     const result = await simpleLLMCall(
         apiConfig,
-        [{ role: "user", content: summaryPrompt }],
+        [{ role: "user", content: appendEmotionTagInstruction(summaryPrompt) }],
         { temperature: 0.3 },
     );
 
@@ -117,7 +155,7 @@ export async function runSummarizationPipeline(
         return { success: false, error: "记忆总结结果疑似被截断，已取消入库，请稍后重试或提高模型输出上限" };
     }
 
-    const summary = result.content;
+    const { content: summary, tag: emotionTag } = parseTaggedSummary(result.content);
 
     // Generate embedding for the summary (only if vector recall is enabled)
     let embedding: number[] | undefined;
@@ -157,6 +195,10 @@ export async function runSummarizationPipeline(
         importance: 0.8,
         createdAt: now,
         updatedAt: now,
+        title: emotionTag.title,
+        tags: emotionTag.tags,
+        valence: emotionTag.valence,
+        arousal: emotionTag.arousal,
         metadata: {
             summarizedEvents: allEntries.length,
             timeSpan: `${earliest} ~ ${latest}`,
@@ -211,10 +253,10 @@ export async function summarizeSharedForMembers(params: {
         .replace(/\{\{latest\}\}/gi, params.latest)
         .replace(/\{\{events\}\}/gi, params.eventsText);
 
-    const result = await simpleLLMCall(apiConfig, [{ role: "user", content: summaryPrompt }], { temperature: 0.3 });
+    const result = await simpleLLMCall(apiConfig, [{ role: "user", content: appendEmotionTagInstruction(summaryPrompt) }], { temperature: 0.3 });
     if (!result.content) return { success: false, error: result.error || "LLM 返回了空内容" };
     if (result.wasTruncated) return { success: false, error: "总结结果疑似被截断，请稍后重试或提高模型输出上限" };
-    const summary = result.content;
+    const { content: summary, tag: emotionTag } = parseTaggedSummary(result.content);
 
     // 只算一次向量，全体复用
     let embedding: number[] | undefined;
@@ -235,6 +277,10 @@ export async function summarizeSharedForMembers(params: {
             importance: 0.8,
             createdAt: now,
             updatedAt: now,
+            title: emotionTag.title,
+            tags: emotionTag.tags,
+            valence: emotionTag.valence,
+            arousal: emotionTag.arousal,
             metadata: { summarizedEvents: params.eventCount, timeSpan: `${params.earliest} ~ ${params.latest}` },
         };
         await saveMemoryEntry(entry);

@@ -155,6 +155,14 @@ function MemorySettingsSliderItem({
     );
 }
 
+// 情绪坐标 → 表情：效价决定正负，唤醒度决定强弱
+function moodEmoji(valence: number, arousal?: number): string {
+    const a = arousal ?? 0.5;
+    if (valence >= 0.35) return a >= 0.6 ? "😄" : "😌";
+    if (valence <= -0.35) return a >= 0.6 ? "😠" : "😔";
+    return a >= 0.6 ? "😮" : "😐";
+}
+
 function relativeTime(isoStr: string): string {
     const diff = Date.now() - new Date(isoStr).getTime();
     const mins = Math.floor(diff / 60000);
@@ -650,6 +658,19 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                     </div>
                                 </div>
                             </div>
+                            {(entry.title || typeof entry.valence === "number" || (entry.tags && entry.tags.length > 0)) && (
+                                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, margin: "2px 0 8px" }}>
+                                    {typeof entry.valence === "number" && (
+                                        <span title={`情绪 ${entry.valence.toFixed(2)} / 强度 ${(entry.arousal ?? 0).toFixed(2)}`} style={{ fontSize: 14 }}>
+                                            {moodEmoji(entry.valence, entry.arousal)}
+                                        </span>
+                                    )}
+                                    {entry.title && <span className="ts-12" style={{ fontWeight: 600 }}>{entry.title}</span>}
+                                    {(entry.tags || []).map((t) => (
+                                        <span key={t} className="ts-11" style={{ padding: "1px 8px", borderRadius: 999, background: "var(--c-input, rgba(0,0,0,0.06))", color: "var(--c-text-secondary, #888)" }}>{t}</span>
+                                    ))}
+                                </div>
+                            )}
                             <div className="ts-12 leading-[1.7]">
                                 {expandedId === entry.id
                                     ? entry.content
