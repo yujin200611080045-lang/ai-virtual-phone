@@ -286,7 +286,6 @@
   /* 开场（点镜头→欢迎回家→今天看谁） */
   .intro{position:fixed;inset:0;z-index:45;background:#050303;display:none;overflow:hidden}
   .intro.on{display:block}
-  .intro::after{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(rgba(255,255,255,.02) 0 1px,transparent 1px 3px)}
   .istage{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;opacity:0;transition:opacity .9s ease;pointer-events:none;padding:24px}
   .istage.show{opacity:1;pointer-events:auto}
   .istage.red{background:radial-gradient(circle at 50% 44%, rgba(212,10,4,.4), rgba(20,0,0,.2) 55%, transparent 72%)}
@@ -310,6 +309,13 @@
   .who-p{display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:14px;border:1px solid rgba(212,10,4,.25);background:rgba(40,14,16,.5);cursor:pointer;color:var(--ink);font-size:15px}
   .who-p:active{background:rgba(70,18,20,.6)}
   .who-p .av{width:34px;height:34px;border-radius:50%;object-fit:cover;background:#2a1414;flex:0 0 auto}
+  /* 第一面底部：摄像头按钮 → 家中监控 */
+  .homecam{position:absolute;left:50%;bottom:calc(var(--ai-phone-app-safe-bottom,20px) + 30px);transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:9px;background:transparent;border:0;cursor:pointer;color:var(--sub);font-size:11px;letter-spacing:4px;text-indent:4px;font-family:inherit}
+  .homecam .ring{width:62px;height:62px;border-radius:50%;border:1.5px solid rgba(240,235,225,.55);display:grid;place-items:center;position:relative;box-shadow:0 0 22px rgba(0,0,0,.6)}
+  .homecam:active .ring{transform:scale(.94)}
+  .homecam svg{width:30px;height:30px;color:rgba(240,235,225,.85)}
+  .homecam .dot{position:absolute;top:13px;right:13px;width:8px;height:8px;border-radius:50%;background:var(--live);box-shadow:0 0 8px var(--live),0 0 16px rgba(212,10,4,.6);animation:blink 1.15s infinite}
+  .iback{position:absolute;top:calc(var(--ai-phone-app-safe-top,44px) + 8px);left:18px;background:transparent;border:0;color:var(--sub);font-size:13px;letter-spacing:2px;cursor:pointer;font-family:inherit;padding:6px 4px}
   /* lock */
   .lock{position:fixed;inset:0;z-index:50;background:var(--bg);display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px}
   .lock.on{display:flex}
@@ -422,6 +428,11 @@
     <div class="istage red" id="iWho">
       <div class="who-text">今天要来看谁？</div>
       <div class="msearch"><span class="mi"></span><input id="whoQ" placeholder="说出名字，机器替你找" autocomplete="off" enterkeyhint="search"><button id="whoQGo">FIND</button></div>
+      <button class="homecam" id="homeCam"><span class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l12.5-3.4 1.6 5.8L4.6 14.3z"/><path d="M17 8.4l3.4-1v5l-3-.9"/><path d="M8 13.3l1 4.2"/><path d="M5.5 18.5h6"/></svg><span class="dot"></span></span>家中监控</button>
+    </div>
+    <div class="istage red" id="iHome">
+      <button class="iback" id="homeBack">‹ 返回</button>
+      <div class="who-text">进谁的家？</div>
       <div class="who-list" id="whoList"></div>
     </div>
   </div>
@@ -2221,7 +2232,9 @@ function endIntro(){ document.body.classList.add("entered"); $("#intro").classLi
 $("#iLens").onclick=()=>{ stageShow("#iWelcome");
   const t=$("#iWelcomeText"); t.style.animation="none"; void t.offsetWidth; t.style.animation="";  // 重放鬼魅淡入淡出
   setTimeout(gotoWho,3900); };
-async function gotoWho(){
+/* 第一面：今天要来看谁（搜索交给机器）；底部摄像头 → 第二面选人进 TA 的家 */
+function gotoWho(){ stageShow("#iWho"); }
+async function gotoHome(){
   const list=$("#whoList"); list.innerHTML="";
   let chars=[]; try{ const cs=await api.characters.list(); chars=(cs&&(cs.items||cs))||[]; }catch(e){}
   if(!chars.length) list.innerHTML='<div class="hint" style="text-align:center;color:#c9a">没读到角色，先在小手机里建一个。</div>';
@@ -2234,8 +2247,10 @@ async function gotoWho(){
   skip.onclick=async()=>{ if(chars.length){ const ch=chars[Math.floor(Math.random()*chars.length)]; const id=ch.id,name=ch.name||ch.title||"角色",av=ch.avatar||ch.avatarUrl||ch.icon||"";
       await switchTarget(id,name,av); toast("随机监控："+name); } endIntro(); };
   list.appendChild(skip);
-  stageShow("#iWho");
+  stageShow("#iHome");
 }
+$("#homeCam").onclick=()=>gotoHome();
+$("#homeBack").onclick=()=>gotoWho();
 
 /* ---------- 机器 · 搜人 ----------
    说出名字 → 机器认出是谁 → 按作息/人设/记忆定位 TA 此刻在哪、在干嘛、和谁 →
