@@ -70,6 +70,8 @@
   .cam-cap #camCapTx.idle{color:rgba(150,144,136,.7);letter-spacing:2px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
   .cam-cap #camCapTx.sub{font-style:italic;color:rgba(245,238,230,.94);letter-spacing:.8px}
   .cam-cap #camCapTx.sub.speech{font-style:normal;letter-spacing:.4px}
+  .cam-cap #camCapTx.sub.act{font-style:normal;font-size:12px;color:rgba(200,190,180,.78)}
+  .cam-cap #camCapTx.sub.you{font-style:normal;color:#ff9a94}
   .cam-cap #camCapTx{transition:opacity .34s ease}
   .cam-zoom{position:absolute;inset:0;transition:transform .28s cubic-bezier(.2,.7,.2,1);will-change:transform}
   .cam-shake{position:absolute;inset:0;animation:camshake .45s infinite}
@@ -181,6 +183,9 @@
     border:1px solid var(--line);background:rgba(30,26,24,.5);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer}
   .slimrec .md,.slimrec .hm{white-space:nowrap}
   .slimrec .rm{font-size:12px;color:var(--sub);flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .arc-line.arc-say{font-style:normal;color:var(--ink)}
+  .arc-line.arc-act{font-style:normal;color:rgba(200,190,180,.72)}
+  .arc-line.arc-snd{font-style:italic;color:rgba(160,150,140,.6);font-size:.92em}
   .arc-line.now{color:#fff;text-shadow:0 0 8px rgba(212,10,4,.55)}
   .rd-play{display:inline-flex;align-items:center;gap:6px;margin:4px 0 10px;font-size:12.5px;letter-spacing:1px;color:var(--amber);background:rgba(212,10,4,.1);border:1px solid rgba(212,10,4,.3);border-radius:9px;padding:6px 12px;cursor:pointer;font-family:inherit}
   #hubSet{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
@@ -1080,11 +1085,22 @@ async function detectCharTz(charId){ if(!charId){ charTzOffset=null; return null
 /* 按作息+当前时间推算 TA 此刻在哪个房间（按小时缓存，省调用） */
 let charLocation=null;
 const LOC_TTL=30*60*1000; /* 半小时内不重推 */
+let _locSig=null, _locAt=0;
+/* 最近的聊天：给定位用；sig 用来判断聊天有没有新消息 */
+async function chatTail(charId){ try{ const h=api.chat&&api.chat.readHistory; if(!h) return {text:"",sig:""};
+  let r=await (h({characterId:charId,limit:20}).catch(()=>null)) || await (h(charId).catch(()=>null));
+  const items=(r&&(r.items||r.messages||r.list||r.data))||(Array.isArray(r)?r:[]);
+  const last=items[items.length-1]||{};
+  const sig=items.length+"|"+String(last.id||last.createdAt||last.timestamp||"")+"|"+String(last.content||last.text||"").slice(-40);
+  const text=items.slice(-14).map(m=>{ const who=(m.role||m.sender||m.from||""); const txt=(m.content||m.text||m.message||""); return txt?((/user|我|self/i.test(who)?"我：":"TA：")+String(txt).slice(0,300)):""; }).filter(Boolean).join("\n").slice(-2500);
+  return {text,sig}; }catch(e){ return {text:"",sig:""}; } }
 async function computeLocation(cfg, force){ if(!cfg||!cfg.charId) return null;
-  if(!force && charLocation) return charLocation; /* 本次会话已推过就复用 */
+  const tail=await chatTail(cfg.charId);
+  /* 复用条件：同一段聊天（没有新消息）、半小时内、是新格式的定位 */
+  if(!force && charLocation && ("place" in charLocation) && _locSig===tail.sig && (Date.now()-_locAt<LOC_TTL)) return charLocation;
   const now=charNow(); const hh=String(now.getHours()).padStart(2,"0"),mm=String(now.getMinutes()).padStart(2,"0");
   const names=(rooms||[]).map(r=>r.name||"房间").filter(Boolean);
-  const q=`现在是 ${hh}:${mm}。家里的房间有：${names.join("、")||"（暂无）"}。\nTA 的作息：以 TA 人设里写的作息为准（人设里没写，就按一个普通人的常规作息合理推测）\n结合作息、人设和现在的时间，判断此刻 TA 在哪里、在做什么（可以是做饭/睡觉/打游戏/看书/emo/洗澡/朋友来家里/开派对… 依 TA 而定）。只输出一行 JSON，别的都不要：{"home":true或false,"room":"房间名(从上面列表里选最贴合的一个，不在家就留空)","activity":"在做什么，八个字以内","place":"具体在哪（不在家时写具体地点，如 公司工位/某咖啡馆/健身房/地铁上/朋友家/酒吧；在家就写 家）","with":"和谁在一起（独自就写 独自）","look":"TA 此刻的外形和穿着（发型、身材、衣着），25字以内，按人设写","shot":"监控画面里看得到的 TA 的姿态动作（不露骨），15字以内","scene":"这个地方此刻的环境（空间、光线、周围的人），40字以内，不写露骨内容","cam":"最可能拍到 TA 的那台摄像头（如 街角监控/店内吊顶监控/地铁车厢监控/电梯监控/公司走廊监控/家中监控），10字以内"}`;
+  const q=`现在是 ${hh}:${mm}。家里的房间有：${names.join("、")||"（暂无）"}。\nTA 的作息：以 TA 人设里写的作息为准（人设里没写，就按一个普通人的常规作息合理推测）${tail.text?("\n【最近的聊天（按时间顺序，最后一条最新）】\n"+tail.text+"\n如果 TA 在聊天里说过自己此刻在哪、刚到哪、正要去哪、在干什么，以聊天为准（算上过去了多久），作息只作参考。"):""}\n结合作息、人设和现在的时间，判断此刻 TA 在哪里、在做什么（可以是做饭/睡觉/打游戏/看书/emo/洗澡/朋友来家里/开派对… 依 TA 而定）。只输出一行 JSON，别的都不要：{"home":true或false,"room":"房间名(从上面列表里选最贴合的一个，不在家就留空)","activity":"在做什么，八个字以内","place":"具体在哪（不在家时写具体地点，如 公司工位/某咖啡馆/健身房/地铁上/朋友家/酒吧；在家就写 家）","with":"和谁在一起（独自就写 独自）","look":"TA 此刻的外形和穿着（发型、身材、衣着），25字以内，按人设写","shot":"监控画面里看得到的 TA 的姿态动作（不露骨），15字以内","scene":"这个地方此刻的环境（空间、光线、周围的人），40字以内，不写露骨内容","cam":"最可能拍到 TA 的那台摄像头（如 街角监控/店内吊顶监控/地铁车厢监控/电梯监控/公司走廊监控/家中监控），10字以内"}`;
   let out=""; try{
     if(hostGenReady(cfg)) out=await hostGenerate(cfg.charId, q);
     else { let dt=""; try{ dt=dossierText(await dossier(cfg.charId)); }catch(e){} out=await directLLM(cfg,[{role:"system",content:"你是个只输出一行 JSON 的判断器，不解释、不寒暄。"},{role:"user",content:(dt?dt+"\n\n":"")+q}]); }
@@ -1092,7 +1108,7 @@ async function computeLocation(cfg, force){ if(!cfg||!cfg.charId) return null;
   let loc=null; try{ const m=String(out).match(/\{[\s\S]*?\}/); if(m) loc=JSON.parse(m[0]); }catch(e){}
   if(!loc||typeof loc!=="object") loc={home:true, room:names[0]||"", activity:""};
   if(loc.home===undefined) loc.home=true;
-  charLocation=loc; try{ await saveCfg({ locCache:loc, locAt:Date.now(), locCharId:cfg.charId }); }catch(e){}
+  charLocation=loc; _locSig=tail.sig; _locAt=Date.now(); try{ await saveCfg({ locCache:loc, locAt:_locAt, locCharId:cfg.charId, locSig:tail.sig }); }catch(e){}
   syncLocationToChar(cfg, loc, hh, mm); return loc; }
 /* 把暗房算出的"此刻在哪做什么"写进角色的全局短期记忆——小手机聊天问得到，能抓包 */
 async function syncLocationToChar(cfg, loc, hh, mm){ if(!cfg||cfg.syncTimeline===false || !cfg.charId) return;
@@ -1571,29 +1587,48 @@ const REPLY_SYS=[
 "TA 对她的声音会有明显的反应，撒娇还是主导依 TA 人设，写法和尺度按预设来。",
 "只依据给出的资料写 TA 的身份/性格/与她的关系，资料没有的既定事实别编造（身体、动作、感官可尽情想象）。",
 "直接输出 TA 的回应正文（可含 TA 说出口的话和动作神态），不要旁白解说、不要括号说明。中文，别太短，也别硬拉长。"].join("\n");
+const TALK_SYS=[
+"你在为一段「居家监控」写对讲那一刻的收音记录。用户透过监控对讲，突然对 TA 说了一句话。",
+"TA 原本并不知道用户在监控 TA、还能透过监控跟 TA 说话——除非 TA 的记忆里已经发生过这种事。所以第一次突然听到她的声音，TA 会很意外：是慌、是恼、是警惕、是害羞还是兴奋，完全按 TA 的性格来；如果记忆里已经知道了，就按知道了的状态自然反应。",
+"只依据给出的资料写 TA 的身份、性格、与她的关系，写法和尺度按预设来。"].join("\n");
+const TALK_FMT="输出 6-14 行，按时间顺序，TA 的话和动作神态穿插着写。每行只一句、必须以下面标签之一开头：\n[话] TA 说出口的话——写「原话」；若说外语，「」里写原话，后面紧跟（中文翻译）\n[动] TA 此刻的动作、神态、身体反应——镜头看得到的白描，一句\n[音] 听得到的声音或拟声，如 *咚*\n示例只示范格式、不要照抄：\n[音] *手机啪地掉在地毯上*\n[动] 他猛地抬头，盯着天花板角落那个红点\n[话]「……谁？」\n只要这三类，不要编号、不要旁白解说。";
 async function sendTalk(text){ const cfg=await getCfg();
   if(!cfg.charId){ toast("先选一个人"); $("#intro").classList.add("on"); gotoHome(); return; }
-  if(!txtReady(cfg)){ toast("先配你自己的宽松站子"); openApi(); return; }
+  if(!txtReady(cfg)){ toast("文字接口没配好"); openApi(); return; }
   if(!curRoom) return;
-  const holder=document.createElement("div"); holder.className="rec-card"; holder.innerHTML=`<div class="streaming">TA 听到了你的声音…</div>`; $("#roomLogs").prepend(holder);
-  const _loc=await computeLocation(cfg).catch(()=>null); const _rn=curRoom.name||"房间";
-  const talkScene = (_loc&&!_loc.home) ? `【场景】此刻 TA 不在家（${_loc.activity||"外出"}），监控对讲仍把用户的声音传了出去——写 TA 在外面/别处听到这句时的即时反应。`
-    : (_loc&&_loc.room&&_loc.room!==_rn) ? `【场景】此刻 TA 在「${_loc.room}」${_loc.activity?("，"+_loc.activity):""}，不在被监控的「${_rn}」；对讲的声音从房间音响传过去，TA 听到了。`
-    : `【场景】TA 此刻就在「${_rn}」里。`;
-  try{ let reply;
-    if(hostGenReady(cfg)){ /* 走 ai.generate：小手机自动带上该角色人设/记忆/世界书/预设 */
-      const instr=[REPLY_SYS, "", talkScene, `【用户透过监控对讲对 TA 说】"${text}"`, "", "写 TA 听到这句话后的即时回应，只输出正文。"].filter(Boolean).join("\n");
-      reply=(await hostGenerate(cfg.charId, instr)).trim();
-    } else { const d=await dossier(cfg.charId);
-      let userMsg=[ dossierText(d), "", "", talkScene, `【用户透过监控对讲对 TA 说】"${text}"`, "写 TA 听到这句话后的即时回应。" ].filter(Boolean).join("\n");
-      const wb=worldbookInject(dossierText(d)+" "+curRoom.name+" "+text+" "+(d.note||""));
-      reply=(await directLLM(cfg, buildMsgs(cfg, REPLY_SYS, wb, userMsg))).trim(); }
-    holder.remove();
-    if(!reply){ toast("TA 没回应，换个站子/模型试试"); return; }
-    const rec={ roomId:curRoom.id, type:"对讲", view:"自述", talk:text, text:reply, fav:false, createdAt:Date.now() };
+  const rn=curRoom.name||"房间"; const loc=await computeLocation(cfg).catch(()=>null)||{};
+  let scene, where;
+  if(curRoom.field){ scene=`【场景】TA 此刻在外面「${rn}」${loc.activity?("，"+loc.activity):""}；她的声音从附近那台监控的喇叭里传了出来。`; where=`${rn}附近的监控喇叭`; }
+  else if(loc.home===false){ toast("TA 此刻不在家，屋里没人听得到你"); return; }
+  else if(loc.room&&loc.room!==rn){ scene=`【场景】TA 此刻在「${loc.room}」${loc.activity?("，"+loc.activity):""}，不在「${rn}」；她的声音从「${rn}」的监控喇叭传出来，隔着墙和门 TA 隐约听到了。`; where=`家里「${rn}」的监控喇叭`; }
+  else { scene=`【场景】TA 此刻就在「${rn}」里${loc.activity?("，"+loc.activity):""}；她的声音从房间里的监控喇叭传出来。`; where=`家里「${rn}」的监控喇叭`; }
+  const mic=$("#rvVoice"); if(mic) mic.disabled=true; stopCaptions(); setCamCap("● 对讲中…");
+  try{ const now=charNow(),hh=String(now.getHours()).padStart(2,"0"),mm=String(now.getMinutes()).padStart(2,"0");
+    const instr=[TALK_SYS,"",`【此刻 ${hh}:${mm}】`+scene,`【她透过对讲说】「${text}」`,"",TALK_FMT].join("\n");
+    const out=await hostGenerate(cfg.charId, instr);
+    if(isBlockedReply(out)){ toast("被模型那边拦下了，换个说法再试"); setCamCap(""); return; }
+    const lines=parseCaptions(out);
+    if(!lines.length){ toast("TA 没回应，再试一次"); setCamCap(""); return; }
+    const rec={ roomId:curRoom.id, type:"对讲", title:"对讲 · "+rn, talk:text, subs:lines.map(l=>l.text), subItems:lines, audio:[], text:"", view:"监控", fav:false, createdAt:Date.now() };
     try{ const cr=await saveLog(rec); rec.id=cr&&cr.id; }catch(e){}
-    logs.unshift(rec); renderRoomLogs(); }
-  catch(e){ holder.remove(); toast("对讲失败："+(e&&e.message||e)); } }
+    logs.unshift(rec); renderRoomLogs();
+    const useVoice=await voiceReady(cfg.charId);
+    /* 先亮出你说的那句，再是 TA 的反应；第 0 条是你的话，所以声音下标要减 1 */
+    playCaptions([{text:"「"+text+"」",other:true,you:true}].concat(lines), useVoice, cfg.charId, {onClip:(i,url)=>keepClip(rec,i-1,url)});
+    rememberTalk(cfg, text, lines, where, hh, mm);
+  }catch(e){ toast("对讲失败："+(e&&e.message||e)); setCamCap(""); }
+  finally{ if(mic) mic.disabled=false; } }
+/* 对讲写进角色记忆：每次进短期事件流（聊天里问得到）；第一次还记一条长期记忆「TA 知道了有监控」 */
+async function rememberTalk(cfg, text, lines, where, hh, mm){ const m=api&&api.memory; if(!m) return;
+  const cn=cfg.charName||"TA"; let un="她"; try{ const u=await api.user.getProfile({characterId:cfg.charId}); if(u&&u.name) un=u.name; }catch(e){}
+  const said=lines.filter(l=>l.speak).map(l=>subCore(l.text)).join(" ").slice(0,180);
+  const acts=lines.filter(l=>l.act).map(l=>subCore(l.text)).slice(0,2).join("；").slice(0,90);
+  const summary=`【${hh}:${mm}】${un}透过${where}突然对${cn}说话：「${text}」。${cn}${acts?("的反应："+acts+"；"):""}回了：「${said||"……"}」。从这一刻起${cn}知道了，${un}能透过监控看到自己、还能对讲。`;
+  try{ if(m.addTimeline) await m.addTimeline({ characterId:cfg.charId, appLabel:"暗房", detail:"intercom", summary, appEventId:"darkroom_talk_"+Date.now(), data:{ said:text, reply:said } }); }catch(e){}
+  const c=await getCfg(); const pc={...(c.perChar||{})};
+  if(!(pc[cfg.charId]&&pc[cfg.charId].talkKnown) && m.add){
+    try{ await m.add({ characterId:cfg.charId, type:"long_term", content:`${un}能透过监控看到${cn}，还能对讲——${cn}第一次是在${where}里突然听到她的声音。`, importance:0.7, reason:"暗房对讲" }); }catch(e){}
+    pc[cfg.charId]={...pc[cfg.charId],talkKnown:true}; await saveCfg({perChar:pc}); } }
 
 async function refreshGenHint(){ const c=await getCfg();
   const need=[]; if(!c.charId) need.push('<span class="link" id="goBind">选对象</span>'); if(!txtReady(c)) need.push('<span class="link" id="goApi2">配站子</span>');
@@ -1691,7 +1726,7 @@ async function playCaptions(items, useVoice, charId, opts){ opts=opts||{}; const
     let url=null; if(useVoice && jobs.has(it)){ url=await Promise.race([jobs.get(it), _sleep(3000).then(()=>null)]); }
     if(my!==capToken) return;
     el.style.opacity="0"; await _sleep(120); if(my!==capToken) return;
-    el.className="sub"+((it.speak||it.other)?" speech":""); el.textContent=it.text; el.style.opacity="1";
+    el.className="sub"+((it.speak||it.other)?" speech":"")+(it.act?" act":"")+(it.you?" you":""); el.textContent=it.text; el.style.opacity="1";
     if(url){ const dur=await _audioDur(url); const cap=Math.max(capDur(it.text), dur?dur*1000+600:capDur(it.text)+2500);
       try{ await _withTimeout(api.voice.play({dataUrl:url}), cap); }
       catch(e){ try{ if(api.voice.stopPlayback) api.voice.stopPlayback({}); }catch(_){} } }
@@ -1705,12 +1740,12 @@ function _audioDur(url){ return new Promise(res=>{ try{ const a=new Audio(); let
 /* 解析成三类：{speak:TA的话, other:别人的话, tts:要念的原话} */
 function parseCaptions(t){ if(!t) return []; const raw=String(t).split(/\n+/).map(s=>s.trim()).filter(Boolean); const out=[];
   for(let s of raw){ s=s.replace(/^[-•\d.、)\s]+/,""); if(!s) continue;
-    let type=null; const mt=s.match(/^\[(话语|话|客|音效|音|环境)\]\s*/);
+    let type=null; const mt=s.match(/^\[(话语|话|客|音效|音|环境|动作|动|神态)\]\s*/);
     if(mt){ type=mt[1]; s=s.slice(mt[0].length).trim(); }
     if(!type){ if(/^\*[^*]+\*$/.test(s)) type="音"; else if(/[「『]/.test(s)) type="话"; else type="音"; }
-    const speech=(type==="话"||type==="话语"), other=(type==="客"); let tts="";
+    const speech=(type==="话"||type==="话语"), other=(type==="客"), act=(type==="动"||type==="动作"||type==="神态"); let tts="";
     if(speech){ const q=s.match(/[「『]([\s\S]*?)[」』]/); tts=(q?q[1]:s).replace(/（[^）]*）/g,"").replace(/\([^)]*\)/g,"").trim(); }
-    if(s.replace(/[*]/g,"").length>0) out.push({ text:s, speak:speech, other, tts });
+    if(s.replace(/[*]/g,"").length>0) out.push({ text:s, speak:speech, other, act, tts });
   }
   return out.slice(0,16); }
 const SUB_SYS="你在为一段“居家监控”做实时收音字幕。先根据【此刻时间、这个房间、TA 的人设与作息】判断 TA 现在是否在家、最可能在做什么（睡觉/洗澡/看电视/打游戏/做饭/发呆/独处/朋友来家里喝酒…），再写出这个房间此刻真实能听到的声音。铁律：绝不违背作息——若按作息此刻 TA 根本不在家，就只写这个空房间穿墙而来的微弱环境音（远处车流、楼道、家电待机的嗡响…），绝不出现 TA 的话或 TA 弄出的声音。声音有远近：TA 正待的那个房间声音最清楚；别的房间只能听到穿墙而来的微弱声响。没有人说话时就只有环境音，不要硬造对话。只通过话语和拟声表现，不做旁白解说。\n每行必须以标签开头，只有这三种：\n[话] TA 自己说的话/自言自语/气音——写「原话」；若 TA 说的是外语，「」里写外语原话，后面紧跟（中文翻译）。\n[客] 别人说的话（朋友、电话那头…，只有房里/线上真有别人时才出现）——写 名字「原话」，外语同样加（中文翻译）。\n[音] 纯声响——只用拟声词还原声音本身，用 *拟声* 包住，绝不点破是什么（不许出现“水/电视/呼吸/脚步”等名词，也不许“…的声音/…地响/传来…”这类解说），让人自己联想。";
@@ -1828,8 +1863,8 @@ function openRead(r){ $("#rdTitle").textContent = r.title || (r.type+" 记录");
   const meta=document.createElement("div"); meta.className="arc-meta"; meta.textContent=`${typeTag(r)} · ${fmtTime(r.createdAt)}`; box.appendChild(meta);
   if(r.talk){ const t=document.createElement("div"); t.className="arc-you"; t.textContent="你说："+r.talk; box.appendChild(t); }
   if(r.subs&&r.subs.length){
-    if(r.type==="收音"){ const b=document.createElement("button"); b.className="rd-play"; b.textContent="▶ 回放声音"; b.onclick=()=>replaySubs(r,b); box.appendChild(b); }
-    const sec=document.createElement("div"); sec.className="arc-sub"; sec.innerHTML=r.subs.map(x=>`<p class="arc-line">「${esc(subCore(x))}」</p>`).join(""); box.appendChild(sec); }
+    if(r.type==="收音"||r.type==="对讲"){ const b=document.createElement("button"); b.className="rd-play"; b.textContent="▶ 回放声音"; b.onclick=()=>replaySubs(r,b); box.appendChild(b); }
+    const sec=document.createElement("div"); sec.className="arc-sub"; sec.innerHTML=subItemsOf(r).map(it=>it.act?`<p class="arc-line arc-act">${esc(subCore(it.text))}</p>`:(it.speak||it.other)?`<p class="arc-line arc-say">「${esc(subCore(it.text))}」</p>`:`<p class="arc-line arc-snd">${esc(subCore(it.text))}</p>`).join(""); box.appendChild(sec); }
   if(r.text){ const sec=document.createElement("div"); sec.innerHTML=paras(r.text); box.appendChild(sec); }
   if(box.childNodes.length<=1) { const e=document.createElement("div"); e.textContent="（空）"; box.appendChild(e); }
   $("#mRead").classList.add("on"); }
@@ -2390,9 +2425,8 @@ async function machineSearch(q,opts){ opts=opts||{}; q=String(q||"").trim();
   await switchTarget(id,name,av); const cfg=await getCfg(); if(my!==_machTk) return;
   if(!txtReady(cfg)){ await mLine("ERROR","文字接口没配，机器没法推断",my); if(my===_machTk) machFail("NO ACCESS"); return; }
   await mLine("ACCESSING","SCHEDULE / MEMORY / CHAT LOG",my); if(my!==_machTk) return;
-  const fresh=!opts.force && charLocation && ("place" in charLocation) && cfg.locCharId===id && cfg.locAt && (Date.now()-cfg.locAt<LOC_TTL);
   const done=mWait("TRIANGULATING"); let loc=null;
-  try{ loc=fresh?charLocation:await computeLocation(cfg,true); }catch(e){}
+  try{ loc=await computeLocation(cfg,!!opts.force); }catch(e){}
   if(my!==_machTk) return;
   if(!loc){ done("FAILED",true); machFail("SIGNAL LOST"); return; }
   done("COMPLETE",true); machLock();
@@ -2426,7 +2460,7 @@ else{ buildKeypad(); renderPinDots();
     await loadRooms(); await loadLogs(); await loadGifts(); await refreshState(); renderHub();
     loadHostWorld().catch(()=>{}); if(c.charId) detectCharTz(c.charId).catch(()=>{}); hostModels().then(m=>{_hostModels=m;}).catch(()=>{});
     if(c.charId){ /* 开 app 定位：半小时内不重推，超过半小时才重新推演 */
-      if(c.locCache && c.locAt && (!c.locCharId||c.locCharId===c.charId) && (Date.now()-c.locAt < LOC_TTL)){ charLocation=c.locCache; if(!$("#hub").hidden) renderHub(); }
+      if(c.locCache && c.locAt && (!c.locCharId||c.locCharId===c.charId) && (Date.now()-c.locAt < LOC_TTL)){ charLocation=c.locCache; _locSig=c.locSig||null; _locAt=c.locAt; if(!$("#hub").hidden) renderHub(); }
       else computeLocation(c, true).then(()=>{ if(!$("#hub").hidden) renderHub(); }).catch(()=>{}); }
     startIntro(); /* 进入口令已撤掉 */
     autoScanGifts(c); }); }
