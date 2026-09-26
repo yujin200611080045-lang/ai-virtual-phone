@@ -323,6 +323,40 @@
   .keypad button:active{background:var(--panel2)}
   .lock .msg{font-size:12px;color:var(--sub);min-height:16px}
   /* POI Machine 分析叠层 */
+  /* ===== 机器 · 搜人（The Machine：说出名字，它替你找到 TA、调出最近的那台监控） ===== */
+  .msearch{display:flex;gap:8px;align-items:center;margin:0 0 12px;position:relative}
+  .msearch .mi{position:absolute;left:11px;top:50%;width:12px;height:12px;transform:translateY(-50%);border:1.3px dashed rgba(255,255,255,.55);pointer-events:none}
+  .msearch .mi::before,.msearch .mi::after{content:"";position:absolute;background:rgba(255,255,255,.8)}
+  .msearch .mi::before{width:1.3px;height:4px;left:50%;top:-1px;transform:translateX(-50%)}
+  .msearch .mi::after{width:4px;height:1.3px;top:50%;left:-1px;transform:translateY(-50%)}
+  .msearch input{flex:1;min-width:0;height:40px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.42);color:#f2f2f2;padding:0 12px 0 32px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;letter-spacing:.5px;outline:none}
+  .msearch input::placeholder{color:rgba(255,255,255,.35)}
+  .msearch input:focus{border-color:rgba(255,255,255,.42)}
+  .msearch button{flex:0 0 auto;height:40px;padding:0 14px;border-radius:10px;border:1px solid rgba(255,255,255,.32);background:rgba(255,255,255,.07);color:#f2f2f2;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;font-weight:700;letter-spacing:2.5px;cursor:pointer}
+  #iWho .msearch{width:100%;max-width:320px;margin:0}
+  .mach{position:fixed;inset:0;z-index:60;background:#030303;display:none;flex-direction:column;align-items:center;justify-content:center;padding:24px 22px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#eee;overflow:hidden;
+    --pc:rgba(245,245,245,.95);--pcs:rgba(255,255,255,.35);--pcd:rgba(245,245,245,.5)}
+  .mach.y{--pc:rgba(250,212,30,.97);--pcd:rgba(250,212,30,.55)}
+  .mach.r{--pc:rgba(228,36,28,.97);--pcd:rgba(228,36,28,.55)}
+  .mach.on{display:flex}
+  .mach::after{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(rgba(255,255,255,.025) 0 1px,transparent 1px 3px)}
+  .mach-hd{position:absolute;top:calc(var(--ai-phone-app-safe-top,44px) + 4px);left:18px;right:18px;display:flex;justify-content:space-between;font-size:9.5px;letter-spacing:2px;color:rgba(255,255,255,.5)}
+  .mach-tg{position:relative;width:104px;height:104px;margin-bottom:30px;flex:0 0 auto;opacity:0;transition:opacity .3s}
+  .mach-tg.on{opacity:1}
+  .mach-tg .av{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#151515;filter:grayscale(.9) contrast(1.15) brightness(.85)}
+  .mach-tg .poi-box{left:50%;top:50%;width:128px;height:128px;animation:machBoxIn .5s cubic-bezier(.2,.8,.3,1)}
+  @keyframes machBoxIn{0%{opacity:0;width:260px;height:260px}60%{opacity:1}100%{opacity:1;width:128px;height:128px}}
+  .mach-log{width:100%;max-width:340px;font-size:11px;line-height:1.95;letter-spacing:.4px;min-height:200px}
+  .mach-log .ln{display:block;white-space:normal;word-break:break-word;text-shadow:0 0 6px rgba(0,0,0,.9)}
+  .mach-log .k{color:var(--pc);font-weight:600;letter-spacing:1px}
+  .mach-log .v{color:rgba(235,235,235,.92)}
+  .mach-log .dim{color:rgba(255,255,255,.4)}
+  .mach-st{margin-top:12px;font-size:10.5px;font-weight:700;letter-spacing:3px;padding:2px 10px;background:var(--pc);color:#000;opacity:0;transition:opacity .25s}
+  .mach-st.on{opacity:1}
+  .mach-x{position:absolute;bottom:calc(var(--ai-phone-app-safe-bottom,18px) + 16px);left:50%;transform:translateX(-50%);height:34px;padding:0 18px;border:1px solid rgba(255,255,255,.25);border-radius:8px;background:transparent;color:rgba(255,255,255,.7);font-family:inherit;font-size:11px;letter-spacing:3px;cursor:pointer}
+  .rtile.field .rn{color:#f2f2f2}
+  .rtile.field .rn .dot{border-radius:0;background:transparent;border:1.3px dashed rgba(255,255,255,.7)}
+  .rtile.field .thumb img{filter:brightness(.85) contrast(1.05) saturate(.6) grayscale(.2)}
   /* POI · The Machine 视角：白框=普通人/物（机器默认），黄框=知道机器存在的人（ADMIN/ASSET），红框=威胁 */
   .poi-ov{position:absolute;inset:0;z-index:8;pointer-events:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:hidden;--pc:rgba(245,245,245,.95);--pcs:rgba(255,255,255,.35);--pcd:rgba(245,245,245,.5)}
   .poi-ov.y{--pc:rgba(250,212,30,.97);--pcs:rgba(250,212,30,.4);--pcd:rgba(250,212,30,.55)}
@@ -390,8 +424,18 @@
     </div>
     <div class="istage red" id="iWho">
       <div class="who-text">今天要来看谁？</div>
+      <div class="msearch"><span class="mi"></span><input id="whoQ" placeholder="说出名字，机器替你找" autocomplete="off" enterkeyhint="search"><button id="whoQGo">FIND</button></div>
       <div class="who-list" id="whoList"></div>
     </div>
+  </div>
+
+  <!-- 机器 · 搜人 -->
+  <div class="mach" id="mach">
+    <div class="mach-hd"><span>THE MACHINE</span><span id="machId"></span></div>
+    <div class="mach-tg" id="machTg"></div>
+    <div class="mach-log" id="machLog"></div>
+    <div class="mach-st" id="machSt"></div>
+    <button class="mach-x" id="machX">ABORT</button>
   </div>
 
   <div class="top">
@@ -401,6 +445,7 @@
 
   <!-- hub -->
   <div id="hub">
+    <div class="msearch"><span class="mi"></span><input id="hubQ" placeholder="告诉机器你要找谁" autocomplete="off" enterkeyhint="search"><button id="hubQGo">FIND</button></div>
     <div class="hubstatus" id="hubStatus"></div>
     <div class="roomgrid" id="roomGrid"></div>
   </div>
@@ -1016,7 +1061,7 @@ async function computeLocation(cfg, force){ if(!cfg||!cfg.charId) return null;
   if(!force && charLocation) return charLocation; /* 本次会话已推过就复用 */
   const now=charNow(); const hh=String(now.getHours()).padStart(2,"0"),mm=String(now.getMinutes()).padStart(2,"0");
   const names=(rooms||[]).map(r=>r.name||"房间").filter(Boolean);
-  const q=`现在是 ${hh}:${mm}。家里的房间有：${names.join("、")||"（暂无）"}。\nTA 的作息：${cfg.routine||"（没写，就按一个普通人的常规作息合理推测）"}\n结合作息、人设和现在的时间，判断此刻 TA 在哪里、在做什么（可以是做饭/睡觉/打游戏/看书/emo/洗澡/朋友来家里/开派对… 依 TA 而定）。只输出一行 JSON，别的都不要：{"home":true或false,"room":"房间名(从上面列表里选最贴合的一个，不在家就留空)","activity":"在做什么，八个字以内"}`;
+  const q=`现在是 ${hh}:${mm}。家里的房间有：${names.join("、")||"（暂无）"}。\nTA 的作息：${cfg.routine||"（没写，就按一个普通人的常规作息合理推测）"}\n结合作息、人设和现在的时间，判断此刻 TA 在哪里、在做什么（可以是做饭/睡觉/打游戏/看书/emo/洗澡/朋友来家里/开派对… 依 TA 而定）。只输出一行 JSON，别的都不要：{"home":true或false,"room":"房间名(从上面列表里选最贴合的一个，不在家就留空)","activity":"在做什么，八个字以内","place":"具体在哪（不在家时写具体地点，如 公司工位/某咖啡馆/健身房/地铁上/朋友家/酒吧；在家就写 家）","with":"和谁在一起（独自就写 独自）","look":"TA 此刻的外形和穿着（发型、身材、衣着），25字以内，按人设写","shot":"监控画面里看得到的 TA 的姿态动作（不露骨），15字以内","scene":"这个地方此刻的环境（空间、光线、周围的人），40字以内，不写露骨内容","cam":"最可能拍到 TA 的那台摄像头（如 街角监控/店内吊顶监控/地铁车厢监控/电梯监控/公司走廊监控/家中监控），10字以内"}`;
   let out=""; try{
     if(hostGenReady(cfg)) out=await hostGenerate(cfg.charId, q);
     else out=await directLLM(cfg,[{role:"system",content:"你是个只输出一行 JSON 的判断器，不解释、不寒暄。"},{role:"user",content:q}]);
@@ -1024,7 +1069,7 @@ async function computeLocation(cfg, force){ if(!cfg||!cfg.charId) return null;
   let loc=null; try{ const m=String(out).match(/\{[\s\S]*?\}/); if(m) loc=JSON.parse(m[0]); }catch(e){}
   if(!loc||typeof loc!=="object") loc={home:true, room:names[0]||"", activity:""};
   if(loc.home===undefined) loc.home=true;
-  charLocation=loc; try{ await saveCfg({ locCache:loc, locAt:Date.now() }); }catch(e){}
+  charLocation=loc; try{ await saveCfg({ locCache:loc, locAt:Date.now(), locCharId:cfg.charId }); }catch(e){}
   syncLocationToChar(cfg, loc, hh, mm); return loc; }
 /* 把暗房算出的"此刻在哪做什么"写进角色的全局短期记忆——小手机聊天问得到，能抓包 */
 async function syncLocationToChar(cfg, loc, hh, mm){ if(!cfg||cfg.syncTimeline===false || !cfg.charId) return;
@@ -1034,6 +1079,9 @@ async function syncLocationToChar(cfg, loc, hh, mm){ if(!cfg||cfg.syncTimeline==
   try{ if(m.deleteTimeline) await m.deleteTimeline({ characterId:cfg.charId, appEventId:"darkroom_loc" }); }catch(e){}
   try{ await m.addTimeline({ characterId:cfg.charId, appLabel:"暗房", detail:"realtime_state", summary, appEventId:"darkroom_loc", data:{ home:loc.home!==false, room:loc.room||"", activity:loc.activity||"" } }); }catch(e){} }
 function locScene(loc, roomName, hh, mm){ const t=`【此刻 ${hh}:${mm}】`;
+  if(curRoom&&curRoom.field){ const l=curRoom.loc||loc||{}; const w=(l.with&&!/独自|一个人|^无$/.test(l.with))?("，和"+l.with+"在一起"):"，独自一人";
+    const where=l.home?(`TA 在家（${l.room||"家里"}），但家里这块没有固定机位，机器调用了${l.cam||"附近的摄像头"}`):(`TA 不在家——机器在外面找到了 TA，TA 在「${roomName}」`);
+    return t+`${where}${l.activity?("，"+l.activity):""}${w}。你看到的是${l.cam||"附近监控"}拍到的画面${l.scene?("："+l.scene):""}。这是清楚的画面，声音也收得到：写 TA 此刻在这个地方真实的样子，环境、周围的人和声音都要在。`; }
   if(!loc) return t+`监控对着「${roomName}」。结合 TA 的作息判断此刻 TA 在哪、在做什么，再写这个房间此刻真实的样子。`;
   if(!loc.home) return t+`按作息此刻 TA 不在家（${loc.activity||"外出"}）。你监控的「${roomName}」是没有人的空房间——只写空房间此刻的样子，顶多从窗外/楼道传来一点微弱动静，绝不让 TA 出现。`;
   if(loc.room && roomName && loc.room!==roomName) return t+`按作息此刻 TA 在「${loc.room}」${loc.activity?("，"+loc.activity):""}，并不在你监控的「${roomName}」。这个房间此刻没有人：只写空房间的样子，再加上从「${loc.room}」方向穿墙／隔着门传来的、模糊不真切又微弱的声响（听得出有动静，但不清楚），绝不把 TA 写进这个房间。`;
@@ -1072,6 +1120,12 @@ function renderHub(){
     : `还没有房间。到「设置 › TA 的房间」加一个，给它放几张广角图。`;
   const hb=$("#hubBind"); if(hb) hb.onclick=openBind;
   const g=$("#roomGrid"); g.innerHTML="";
+  const fd=_cfg&&_cfg.charId?fieldOf(_cfg.charId):null;
+  if(fd){ const tile=document.createElement("div"); tile.className="rtile field"; const out=!!(charLocation&&charLocation.home===false);
+    tile.innerHTML=`<div class="thumb">${fd.pano?`<img src="${fd.pano}">`:`<div class="noimg">◎</div>`}<div class="scan"></div><div class="vig"></div>`+
+      `<span class="cid mono">${esc(fd.camId||"CAM ----")}</span><span class="occ${out?" here":""}"><i></i>${out?"LIVE":"LAST"}</span></div>`+
+      `<div class="rn"><span class="dot"></span>${esc(fd.place||"外面")}</div>`;
+    tile.onclick=()=>openRoom(fieldRoom(fd)); g.appendChild(tile); }
   rooms.forEach((r,i)=>{
     const tile=document.createElement("div"); tile.className="rtile";
     const img=pickPano(r).pano||(r.images&&r.images[0])||"";
@@ -1397,7 +1451,7 @@ async function _poiType(lines,tk){
   }
 }
 
-function camLabel(room){ const i=rooms.findIndex(r=>r.id===room.id); return "CAM "+String((i<0?0:i)+1).padStart(2,"0"); }
+function camLabel(room){ if(room&&room.field) return room.camId||"CAM ----"; const i=rooms.findIndex(r=>r.id===room.id); return "CAM "+String((i<0?0:i)+1).padStart(2,"0"); }
 function setCamOffset(frac,animate){ const track=$("#camTrack"); if(!track) return;
   track.style.transition=animate?"transform .5s cubic-bezier(.4,0,.2,1)":"none";
   track.style.transform=`translateX(-${frac*100}%)`; }
@@ -1453,6 +1507,8 @@ function openRoom(room){
 }
 async function refreshRvLoc(){ const el=$("#rvLoc"); if(!el||!curRoom) return; const cfg=await getCfg();
   if(!cfg.charId){ el.className="rvloc"; el.innerHTML=""; return; }
+  if(curRoom.field){ const l=curRoom.loc||{}; const nm=esc(cfg.charName||"TA"); const w=(l.with&&!/独自|一个人|^无$/.test(l.with))?(" · 和"+esc(l.with)):"";
+    el.className="rvloc here"; el.innerHTML=`<span class="d"></span><span>${nm} 在「${esc(curRoom.name||"外面")}」${l.activity?(" · "+esc(l.activity)):""}${w}</span>`; return; }
   el.className="rvloc"; el.innerHTML='<span class="d"></span><span>按作息定位中…</span>';
   let loc=null; try{ loc=await computeLocation(cfg); }catch(e){}
   if(!curRoom) return; const rn=curRoom.name||"房间"; const nm=esc(cfg.charName||"TA");
@@ -1541,7 +1597,9 @@ async function generate(){
     const now=charNow(),hh=String(now.getHours()).padStart(2,"0"),mm=String(now.getMinutes()).padStart(2,"0");
     const loc=await computeLocation(cfg);
     const scene=locScene(loc, curRoom.name||"房间", hh, mm);
-    const flow = (cfg.userCentric===false)
+    const flow = curRoom.field
+      ? `${focusLine(cfg)}\n写 TA 此刻在这个地方的真实样子。只有此刻确实私密、独处、氛围合适时，才往「${gType}」方向走——${typeLine(gType)}否则如实写 TA 在外面的这一刻，绝不硬编。写得连贯完整。`
+      : (cfg.userCentric===false)
       ? focusLine(cfg)+" 若按作息此刻 TA 不在家、或在做别的事，就如实写那个真实的此刻（空房间 / 日常）。写得连贯完整。"
       : `${focusLine(cfg)}\n如果此刻氛围合适（TA 确实独自在家、在这个房间），想写的私密方向是「${gType}」——${typeLine(gType)}但这只是"合适时才写"的方向；若按作息此刻 TA 不在家、或在做别的事，就如实写那个真实的此刻（空房间 / 日常），绝不为了凑「${gType}」而硬编 TA 在场或在自慰。写得连贯完整。`;
     let text;
@@ -1561,7 +1619,7 @@ async function generate(){
   btn.disabled=false; btn.textContent="● 生成这一刻";
 }
 $("#genBtn").onclick=generate;
-$("#rvLoc").onclick=async()=>{ const c=await getCfg(); if(c.charId){ charLocation=null; refreshRvLoc(); toast("重新按作息定位…"); } };
+$("#rvLoc").onclick=async()=>{ const c=await getCfg(); if(curRoom&&curRoom.field&&c.charId){ machineSearch(c.charName||"",{force:true,charId:c.charId}); return; } if(c.charId){ charLocation=null; refreshRvLoc(); toast("重新按作息定位…"); } };
 $("#memSeed").onclick=batchGenerate;
 $("#searchBtn").onclick=()=>{ $("#searchInput").value=""; $("#mSearch").classList.add("on"); setTimeout(()=>{ try{$("#searchInput").focus();}catch(e){} },60); };
 $("#searchCancel").onclick=()=>$("#mSearch").classList.remove("on");
@@ -2090,7 +2148,8 @@ $("#bindPreview").onclick=async()=>{ const cur=await getCfg(); const id=(bindPic
   try{ const d=await dossier(id); $("#rdBody").textContent=dossierText(d)||"（人设、记忆都没读到——去小手机把角色的人设/记忆补全最可靠）"; }
   catch(e){ $("#rdBody").textContent="读取失败："+(e&&e.message||e); } };
 $("#bindSave").onclick=async()=>{ const cur=await getCfg(); const pick=bindPick||(cur.charId?{id:cur.charId,name:cur.charName,av:cur.charAv}:null); if(!pick){ toast("先选一个角色"); return; }
-  await saveCfg({charId:pick.id,charName:pick.name,charAv:pick.av||"",routine:$("#bindRoutine").value.trim()}); $("#mBind").classList.remove("on"); await refreshState(); refreshGenHint(); charTzOffset=null; charLocation=null; detectCharTz(pick.id).catch(()=>{}); toast("已保存对象与设定"); };
+  const _rt=$("#bindRoutine").value.trim(); const _pc={...(cur.perChar||{})}; _pc[pick.id]={..._pc[pick.id],routine:_rt};
+  await saveCfg({charId:pick.id,charName:pick.name,charAv:pick.av||"",routine:_rt,perChar:_pc}); $("#mBind").classList.remove("on"); await refreshState(); refreshGenHint(); charTzOffset=null; charLocation=null; detectCharTz(pick.id).catch(()=>{}); toast("已保存对象与设定"); };
 
 /* 导入复古字体（换掉衬线显示字体） */
 function applySerif(dataUrl){ let st=document.getElementById("uSerif"); if(!st){ st=document.createElement("style"); st.id="uSerif"; document.head.appendChild(st); }
@@ -2165,14 +2224,112 @@ async function gotoWho(){
   chars.forEach(ch=>{ const id=ch.id,name=ch.name||ch.title||"角色",av=ch.avatar||ch.avatarUrl||ch.icon||"";
     const el=document.createElement("div"); el.className="who-p";
     el.innerHTML=(av?`<img class="av" src="${esc(av)}">`:`<span class="av"></span>`)+`<span>${esc(name)}</span>`;
-    el.onclick=async()=>{ await saveCfg({charId:id,charName:name,charAv:av}); await refreshState(); refreshGenHint(); charTzOffset=null; detectCharTz(id).catch(()=>{}); endIntro(); };
+    el.onclick=async()=>{ await switchTarget(id,name,av); endIntro(); };
     list.appendChild(el); });
   const skip=document.createElement("div"); skip.className="cover-hint"; skip.style.cssText="margin-top:8px;cursor:pointer"; skip.textContent="随机进去 ›";
   skip.onclick=async()=>{ if(chars.length){ const ch=chars[Math.floor(Math.random()*chars.length)]; const id=ch.id,name=ch.name||ch.title||"角色",av=ch.avatar||ch.avatarUrl||ch.icon||"";
-      await saveCfg({charId:id,charName:name,charAv:av}); await refreshState(); refreshGenHint(); charTzOffset=null; detectCharTz(id).catch(()=>{}); toast("随机监控："+name); } endIntro(); };
+      await switchTarget(id,name,av); toast("随机监控："+name); } endIntro(); };
   list.appendChild(skip);
   stageShow("#iWho");
 }
+
+/* ---------- 机器 · 搜人 ----------
+   说出名字 → 机器认出是谁 → 按作息/人设/记忆定位 TA 此刻在哪、在干嘛、和谁 →
+   在家且那个房间有机位：直接切进家里的监控；否则：调出「最近的那台摄像头」，生成那个地方此刻的监控画面。 */
+let fields=[]; /* 每个角色最近一次被机器找到时的外勤画面 */
+async function loadFields(){ try{ const l=await api.db.list("fields",{limit:100}); fields=(l?.items||l||[]).map(r=>({id:r.id,...(r.data||r)})); }catch(e){ fields=[]; } }
+function fieldOf(charId){ return fields.find(f=>f.charId===charId)||null; }
+function fieldRoom(f){ return { id:"field_"+f.charId, field:true, name:f.place||"外面", pano:f.pano||"", panoAR:f.panoAR||1.5, panoZoom:f.panoZoom||zoomForAR(f.panoAR||1.5), images:[], variants:[], camId:f.camId||"", loc:f.loc||null }; }
+async function saveField(f){ const old=fieldOf(f.charId);
+  try{ if(old&&old.id){ await api.db.update("fields",old.id,f); f.id=old.id; } else { const cr=await api.db.create("fields",f); f.id=cr&&cr.id; } }catch(e){}
+  fields=fields.filter(x=>x.charId!==f.charId); fields.push(f); return f; }
+function fieldPrompt(loc,place){ const l=loc||{};
+  return [ "CCTV 监控摄像头画面："+(l.cam||"附近的监控摄像头")+"，高位俯拍，广角镜头，轻微鱼眼畸变，画面四角暗角",
+    "地点："+place, l.scene||"",
+    l.look?("画面里的主体人物（离镜头中远距离，看得清身形和衣着）："+l.look):"画面里有一个人",
+    l.shot?("此刻："+l.shot):(l.activity?("此刻正在"+l.activity):""),
+    (l.with&&!/独自|一个人|^无$/.test(l.with))?("身边："+l.with):"",
+    "写实监控录像截图质感，偏低清晰度，轻微噪点，色彩偏冷偏灰，画面里不要出现任何文字、字幕、时间戳或水印" ].filter(Boolean).join("。")+"。"; }
+/* 切换监控对象：作息按角色分开存，换人时带走/带回各自那份 */
+async function switchTarget(id,name,av){ const c=await getCfg();
+  if(c.charId!==id){ const pc={...(c.perChar||{})}; if(c.charId) pc[c.charId]={...pc[c.charId],routine:c.routine||""};
+    const nx=pc[id]||{}; await saveCfg({charId:id,charName:name,charAv:av||"",routine:nx.routine||"",perChar:pc});
+    charLocation=null; charTzOffset=null; detectCharTz(id).catch(()=>{}); }
+  else if(name!==c.charName||(av||"")!==(c.charAv||"")) await saveCfg({charName:name,charAv:av||""});
+  await refreshState(); refreshGenHint(); }
+function _normName(x){ return String(x||"").replace(/\s+/g,"").toLowerCase(); }
+function matchChar(q,chars){ const s=_normName(q); if(!s) return null; let best=null,bl=0;
+  chars.forEach(ch=>{ const n=_normName(ch.name||ch.title); if(n&&s.includes(n)&&n.length>bl){ best=ch; bl=n.length; } }); /* 「江却现在在干嘛」这种整句也认 */
+  if(best) return best;
+  const part=chars.find(ch=>{ const n=_normName(ch.name||ch.title); return n&&n.includes(s); }); if(part) return part;
+  let top=null,ts=0; chars.forEach(ch=>{ const n=_normName(ch.name||ch.title); if(!n) return; let k=0; for(const x of new Set(n)) if(s.includes(x)) k++; const sc=k/n.length; if(k>=2&&sc>ts){ ts=sc; top=ch; } });
+  return ts>=0.5?top:null; }
+let _machTk=0;
+const _mSleep=ms=>new Promise(r=>setTimeout(r,ms));
+function machOpen(){ const m=$("#mach"); m.className="mach on"; $("#machLog").innerHTML=""; $("#machTg").className="mach-tg"; $("#machTg").innerHTML="";
+  const st=$("#machSt"); st.className="mach-st"; st.textContent=""; $("#machX").textContent="ABORT";
+  $("#machId").textContent=String(Math.floor(Math.random()*1e3)).padStart(3,"0")+"-"+String(Math.floor(Math.random()*1e2)).padStart(2,"0")+"-"+String(Math.floor(Math.random()*1e4)).padStart(4,"0"); }
+function machClose(){ _machTk++; $("#mach").className="mach"; }
+function machTarget(av){ const tg=$("#machTg");
+  tg.innerHTML=(av?`<img class="av" src="${esc(av)}">`:`<span class="av"></span>`)+`<div class="poi-box"><i class="bd"></i><i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i><i class="t n"></i><i class="t s"></i><i class="t w"></i><i class="t e"></i></div>`;
+  tg.classList.add("on"); }
+function machLock(){ const b=$("#machTg .poi-box"); if(b) b.classList.add("done"); }
+function machStatus(t,color){ const m=$("#mach"); m.classList.remove("y","r"); if(color) m.classList.add(color); const st=$("#machSt"); st.textContent=t; st.classList.add("on"); }
+async function mLine(k,v,tk){ const box=$("#machLog"); const el=document.createElement("span"); el.className="ln";
+  const kk=document.createElement("span"); kk.className="k"; kk.textContent=k+": "; el.appendChild(kk);
+  const vv=document.createElement("span"); vv.className="v"; el.appendChild(vv); const cur=document.createElement("span"); cur.className="poi-cur"; vv.appendChild(cur);
+  box.appendChild(el); const txt=String(v==null?"":v);
+  for(let i=0;i<txt.length;i++){ if(tk!=null&&tk!==_machTk) return el; cur.before(document.createTextNode(txt[i])); await _mSleep(10+Math.random()*14); }
+  cur.remove(); await _mSleep(90+Math.random()*80); return el; }
+/* 等待中的一行：光标一直闪，拿到结果再补上 */
+function mWait(k){ const box=$("#machLog"); const el=document.createElement("span"); el.className="ln";
+  el.innerHTML=`<span class="k">${esc(k)}: </span><span class="v dim">…</span><span class="poi-cur"></span>`; box.appendChild(el);
+  return (v,dim)=>{ const c=el.querySelector(".poi-cur"); if(c) c.remove(); const vv=el.querySelector(".v"); vv.className="v"+(dim?" dim":""); vv.textContent=v; }; }
+function machFail(msg){ machLock(); machStatus(msg||"SIGNAL LOST","r"); $("#machX").textContent="BACK"; }
+async function machineSearch(q,opts){ opts=opts||{}; q=String(q||"").trim();
+  if(!q&&!opts.charId){ toast("告诉机器你要找谁"); return; }
+  const my=++_machTk; machOpen();
+  let chars=[]; try{ const cs=await api.characters.list(); chars=(cs&&(cs.items||cs))||[]; }catch(e){}
+  await mLine("QUERY",q||"—",my); if(my!==_machTk) return;
+  const hit=opts.charId?(chars.find(c=>c.id===opts.charId)||{id:opts.charId,name:q}):matchChar(q,chars);
+  if(!hit){ await mLine("SEARCHING","ALL KNOWN SUBJECTS",my); await mLine("RESULT","NO MATCH IN DATABASE",my); if(my===_machTk) machFail("NO MATCH"); return; }
+  const id=hit.id,name=hit.name||hit.title||"角色",av=hit.avatar||hit.avatarUrl||hit.icon||"";
+  machTarget(av); await mLine("SUBJECT",name,my); if(my!==_machTk) return;
+  await switchTarget(id,name,av); const cfg=await getCfg(); if(my!==_machTk) return;
+  if(!txtReady(cfg)){ await mLine("ERROR","文字接口没配，机器没法推断",my); if(my===_machTk) machFail("NO ACCESS"); return; }
+  await mLine("ACCESSING","SCHEDULE / MEMORY / CHAT LOG",my); if(my!==_machTk) return;
+  const fresh=!opts.force && charLocation && ("place" in charLocation) && cfg.locCharId===id && cfg.locAt && (Date.now()-cfg.locAt<LOC_TTL);
+  const done=mWait("TRIANGULATING"); let loc=null;
+  try{ loc=fresh?charLocation:await computeLocation(cfg,true); }catch(e){}
+  if(my!==_machTk) return;
+  if(!loc){ done("FAILED",true); machFail("SIGNAL LOST"); return; }
+  done("COMPLETE",true); machLock();
+  const place=loc.home?("家 · "+(loc.room||"家里")):(loc.place||loc.activity||"外面");
+  await mLine("LOCATION",place,my); if(loc.activity) await mLine("ACTIVITY",loc.activity,my);
+  if(loc.with) await mLine("ASSOCIATES",loc.with,my); if(my!==_machTk) return;
+  /* 在家、那个房间有机位 → 直接切进家里的监控 */
+  if(loc.home){ const room=rooms.find(r=>(r.name||"")===loc.room);
+    if(room&&(pickPano(room).pano||(room.images||[]).length)){ await mLine("FEED",camLabel(room)+" · "+(room.name||"房间"),my); if(my!==_machTk) return;
+      machStatus("SUBJECT LOCATED"); await _mSleep(950); if(my!==_machTk) return; machClose(); if(!document.body.classList.contains("entered")) endIntro(); openRoom(room); return; } }
+  /* 不在家 / 家里那块没机位 → 调最近的摄像头、生成此刻的画面 */
+  let f=fieldOf(id);
+  const reuse=!opts.force && f && f.place===place && f.activity===(loc.activity||"") && f.pano && (Date.now()-(f.at||0)<LOC_TTL);
+  if(!reuse){ const camId="CAM "+String(1000+Math.floor(Math.random()*9000));
+    const got=mWait("ACQUIRING"); let pano="",ar=1.5;
+    if(imgReady(cfg)){ try{ const url=await genImageRaw(cfg, fieldPrompt(loc,place), null, "1536x1024"); const c=await compressKeep(url); pano=c.url; ar=c.ar||1.5; got((loc.cam||"附近监控")+" · "+camId); }
+      catch(e){ got("NO VISUAL — "+String(e&&e.message||e).slice(0,40),true); } }
+    else got("NO IMAGE API — AUDIO ONLY",true);
+    if(my!==_machTk) return;
+    f=await saveField({ charId:id, place, activity:loc.activity||"", cam:loc.cam||"", camId, pano, panoAR:ar, panoZoom:zoomForAR(ar), loc, at:Date.now() }); }
+  else await mLine("FEED",(f.cam||"附近监控")+" · "+(f.camId||""),my);
+  if(my!==_machTk) return;
+  machStatus("SUBJECT LOCATED"); await _mSleep(950); if(my!==_machTk) return;
+  machClose(); if(!document.body.classList.contains("entered")) endIntro(); openRoom(fieldRoom(f)); }
+$("#machX").onclick=()=>machClose();
+$("#hubQGo").onclick=()=>{ const v=$("#hubQ").value; $("#hubQ").blur(); machineSearch(v); };
+$("#hubQ").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); $("#hubQ").blur(); machineSearch($("#hubQ").value); } });
+$("#whoQGo").onclick=()=>{ const v=$("#whoQ").value; $("#whoQ").blur(); machineSearch(v); };
+$("#whoQ").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); $("#whoQ").blur(); machineSearch($("#whoQ").value); } });
 
 /* ---------- boot ---------- */
 if(!api){ document.body.innerHTML='<div style="padding:40px;text-align:center;color:#847d72">请在小手机里打开这个 App</div>'; }
@@ -2180,10 +2337,10 @@ else{ buildKeypad(); renderPinDots();
   getCfg().then(async c=>{ customTypes=Array.isArray(c.customTypes)?c.customTypes:[]; gType=allTypes()[0]||"春梦";
     micOn=!!c.micOn;
     if(c.fontData) applySerif(c.fontData);
-    await loadRooms(); await loadLogs(); await loadGifts(); await refreshState(); renderHub();
+    await loadRooms(); await loadLogs(); await loadGifts(); await loadFields(); await refreshState(); renderHub();
     loadHostWorld().catch(()=>{}); if(c.charId) detectCharTz(c.charId).catch(()=>{}); hostModels().then(m=>{_hostModels=m;}).catch(()=>{});
     if(c.charId){ /* 开 app 定位：半小时内不重推，超过半小时才重新推演 */
-      if(c.locCache && c.locAt && (Date.now()-c.locAt < LOC_TTL)){ charLocation=c.locCache; if(!$("#hub").hidden) renderHub(); }
+      if(c.locCache && c.locAt && (!c.locCharId||c.locCharId===c.charId) && (Date.now()-c.locAt < LOC_TTL)){ charLocation=c.locCache; if(!$("#hub").hidden) renderHub(); }
       else computeLocation(c, true).then(()=>{ if(!$("#hub").hidden) renderHub(); }).catch(()=>{}); }
     if(c.pin) $("#lock").classList.add("on"); else startIntro();
     autoScanGifts(c); }); }
