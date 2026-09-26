@@ -1803,16 +1803,15 @@ async function batchGenerate(){ const cfg=await getCfg();
 /* 搜索框＝自定义生成：按人设生成 TA 在家做某件事，不 OOC */
 async function customGenerate(query){ query=String(query||"").trim(); if(!query) return; const cfg=await getCfg();
   if(!cfg.charId){ toast("先选一个人"); $("#intro").classList.add("on"); gotoHome(); return; }
-  if(!hasStation(cfg)){ toast("搜索只走自填站子——请先在接口配置里把自填的 base / key / 模型 三样填全"); openApi(); return; }
   const go=$("#searchGo"); const old=go?go.textContent:""; if(go){ go.disabled=true; go.textContent="生成中…"; }
   try{ const view=(cfg.genView==="自述")?"自述":"监控"; const wlen=Math.min(parseInt(cfg.genLen,10)||1000, 800);
     const centricNote = (cfg.userCentric!==false) ? "若场景里有别人（朋友等），话题可以自然带到 user 身上，能听到 TA 私下对 user 的态度。" : "不用围绕 user，就写 TA 自己这件事。";
     const ask=`【本次是创作任务，不是对话】直接输出一段“过去发生过的监控回放”正文，绝不能回复“新窗口没有上下文 / 你想继续什么 / 请提供更多信息”之类——你有 TA 的完整人设，凭它创作即可。\n内容核心＝【${query}】：必须真的围绕这件事本身写，绝不跑去写别的活动；贴人设、绝不 OOC，不完全符合 TA 就演绎成“最像 TA 的版本”，但不许违背人设。${centricNote}\n【当作与今天无关的往事】不要引用今天/最近发生的事、不要提最近的聊天、不要用“此刻/实时状态/TA 现在在做什么”这类信息——就当一段独立的过去片段自由创作。\n先输出「标题：<八字内短标题>」，第二行「时间：HH:MM」（和内容时间段吻合：深夜派对 22:xx、中午做饭 12:xx…），再换行写正文。${VIEW_LINE[view]} ${styleRef(cfg,view)}\n正文至少 ${wlen} 字，只能多不能少、绝不许短。`;
     const d=await dossier(cfg.charId, null, {dropToday:true}); const um=[dossierText(d),"","",ask].filter(Boolean).join("\n");
     const wb=worldbookInject(dossierText(d)+" "+curRoom.name+" "+query); const msgs=buildMsgs(cfg, SYS, wb, um);
-    const out=await _directLLM(cfg, msgs); /* 搜索只走自填，不回退小手机——保证不带当天记忆 */
+    const out=await directLLM(cfg, msgs); /* 走小手机里给角色绑定的同一个接口（ai.chat）；上下文由暗房自己拼、剔掉当天记忆 */
     const p=parseBlock(String(out||"").trim()); const title=p.title, body=p.body;
-    if(!body){ toast("自填没出内容——被拦就换个非 Gemini 的宽松站子，或检查模型名"); }
+    if(!body){ toast("没出内容，可能被模型拦了，换个说法再搜一次"); }
     else { const rec={ roomId:curRoom.id, type:"回放", title:title||query.slice(0,12), text:body, view, talk:"", fav:false, createdAt:pastDate(p.time,0) };
       try{ const cr=await saveLog(rec); rec.id=cr&&cr.id; }catch(e){} logs.unshift(rec); renderRoomLogs(); const si=$("#searchInput"); if(si) si.value=""; $("#mSearch").classList.remove("on"); openRead(rec); }
   }catch(e){ toast("生成失败："+(e&&e.message||e)); }
