@@ -1276,8 +1276,8 @@ async function capturePoiImg(cam, ox, oy){
       fx=Math.max(0,Math.min(1,clickCSSX/imgCSSW));
       fy=Math.max(0,Math.min(1,clickCSSY/imgCSSH));
     }
-    /* 裁剪：取点击位置周围 42% 区域——太小会只剩一团后脑勺/椅背，分不清是人还是物；准星圈出目标点 */
-    const frac=0.42;
+    /* 裁剪：取点击位置周围 32% 区域（够看清是什么，又不会把远处的人也框进来） */
+    const frac=0.32;
     const sw=im.width*frac, sh=im.height*frac;
     const sx=Math.max(0,Math.min(im.width-sw, im.width*fx - sw/2));
     const sy=Math.max(0,Math.min(im.height-sh, im.height*fy - sh/2));
@@ -1285,8 +1285,8 @@ async function capturePoiImg(cam, ox, oy){
     const cv=document.createElement("canvas"); cv.width=Math.round(sw*scale); cv.height=Math.round(sh*scale);
     const ctx=cv.getContext("2d");
     ctx.drawImage(im,sx,sy,sw,sh,0,0,cv.width,cv.height);
-    /* 在裁剪图中心画十字准星，让 AI 明确知道目标点 */
-    const cx=cv.width/2, cy=cv.height/2, arm=Math.min(cv.width,cv.height)*0.05;
+    /* 准星画在「你点的那个点」上——靠边时裁剪框会往里收，点不一定在正中，不能画在中心 */
+    const cx=(im.width*fx-sx)*scale, cy=(im.height*fy-sy)*scale, arm=Math.min(cv.width,cv.height)*0.05;
     ctx.strokeStyle="rgba(255,40,40,0.85)"; ctx.lineWidth=Math.max(2,Math.round(cv.width/200));
     ctx.beginPath(); ctx.moveTo(cx-arm,cy); ctx.lineTo(cx+arm,cy); ctx.moveTo(cx,cy-arm); ctx.lineTo(cx,cy+arm); ctx.stroke();
     ctx.strokeStyle="rgba(255,40,40,0.5)"; ctx.lineWidth=1;
@@ -1398,16 +1398,17 @@ async function poiAnalyze(ox,oy){
   const knows=!!(((cfg.perChar||{})[cfg.charId]||{}).talkKnown);
   const visionPrompt=`这是「${curRoom.name||"房间"}」的监控截图局部（操作员点在${posDesc}）。CAM:${camLabel(curRoom)} ${hh}:${mm}。监控对象：${cn}（${locInfo}）。
 
-图片正中心有一个红色十字准星（⊕），准星正对着的就是锁定目标。
+图片里有一个红色十字准星（⊕），准星正对着的那一点就是操作员锁定的目标。
 
-第一步·先判断目标是人还是物：
-只要准星落在人的任何部位——头、后脑勺、头发、脸、肩、背、手、胳膊、身体、身上的衣服——哪怕是背影、只露一部分、光线很暗，一律按【人物】分析，不要去分析他坐的椅子、靠的桌子、手边的东西。
-只有准星明确落在没有被人挡住的物体上，才按【物品】分析。
+只分析准星正中那一个点落在什么东西上，其余一概不管：
+- 准星落在物体上（柜子、抽屉、桌面、杯子、屏幕、椅子…），就按【物品】分析这个物体——哪怕画面别处有人，也不要去分析人。
+- 只有准星正正落在人身上（头、脸、身体、手、穿着的衣服），才按【人物】分析。
+不确定时，以准星圆圈里面积最大的那个东西为准。
 
 【人物】严格按此格式输出（只输出这9行）：
 ${knows?"ASSET":"IRRELEVANT"}
 MODE:PERSONNEL
-NAME:[这个人是谁；此刻在这里的若只有 ${cn}，就是 ${cn}]
+NAME:[这个人是谁；看得出是 ${cn} 就写 ${cn}，不确定写 未识别]
 STATUS:[清醒/专注/疲惫/睡着…，看得出来的状态]
 ACTIVITY:[此刻正在做什么，只写画面里看得到的]
 LOCATION:[人在房间/场所里的实际位置，如 工位前/沙发上/窗边；不用画面左右上下这类词]
