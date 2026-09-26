@@ -538,7 +538,8 @@
     <div class="apisec">
       <div class="apihd">① 文字接口 · 写监控长文</div>
       <div class="seg" id="cSrcSeg" style="display:none"><button data-s="host" class="on">小手机模型</button></div>
-      <div class="field" id="cHostWrap"><label>选一个小手机模型（留空＝小手机当前默认）</label>
+      <div class="hint" style="margin:2px 0 10px">直接用小手机里给这个角色绑定的接口，不用在这里选。</div>
+      <div class="field" id="cHostWrap" style="display:none!important"><label>选一个小手机模型（留空＝小手机当前默认）</label>
         <select id="cHostSel"><option value="">— 小手机当前默认 —</option></select>
         <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;color:var(--ink)"><input type="checkbox" id="cHostChar" style="width:auto"> 跟随房间角色的接口／预设／世界书（小手机按角色分接口时勾上）</label></div>
       <div id="cManual" style="display:none!important">
@@ -762,7 +763,7 @@ let customTypes=[];
 let _cfg,_cfgId;
 async function getCfg(){ if(_cfg!==undefined) return _cfg;
   try{ const l=await api.db.list("config",{limit:1}); const r=(l?.items||l||[])[0]; _cfgId=r&&r.id; _cfg=r?(r.data||r):{}; }catch(e){ _cfg={}; }
-  _cfg.txtSrc="host"; /* 文字固定走小手机 */
+  _cfg.txtSrc="host"; _cfg.hostUseChar=true; _cfg.hostTxtModel=""; /* 文字固定走小手机里给角色绑定的接口 */
   return _cfg; }
 async function saveCfg(patch){ const cur=await getCfg(); const data={...cur,...patch};
   if(_cfgId) await api.db.update("config",_cfgId,data); else{ const c=await api.db.create("config",data); _cfgId=c&&c.id; } _cfg=data; return data; }
@@ -2110,7 +2111,7 @@ $("#setClose").onclick=()=>$("#mSet").classList.remove("on");
 
 let _hostModels=[];
 function applySrcUI(){ const t=(document.querySelector("#cSrcSeg button.on")||{}).dataset; const ts=t&&t.s||"self";
-  $("#cHostWrap").style.display="";
+
   const i=(document.querySelector("#iSrcSeg button.on")||{}).dataset; const is=i&&i.s||"self";
   $("#iHostWrap").style.display=is==="host"?"":"none"; $("#iManual").style.display=is==="host"?"none":""; }
 function setSrc(seg,val){ document.querySelectorAll("#"+seg+" button").forEach(b=>b.classList.toggle("on",b.dataset.s===val)); }
@@ -2129,7 +2130,7 @@ $("#pullHost").onclick=async()=>{ $("#cInfo").textContent="从小手机拉取中
   catch(e){ $("#cInfo").textContent="✕ "+(e&&e.message||e); } };
 $("#cSave").onclick=async()=>{ const txtSrc=(document.querySelector("#cSrcSeg button.on")||{}).dataset?document.querySelector("#cSrcSeg button.on").dataset.s:"self";
   const imgSrc=(document.querySelector("#iSrcSeg button.on")||{}).dataset?document.querySelector("#iSrcSeg button.on").dataset.s:"self";
-  await saveCfg({ txtSrc, imgSrc, hostTxtModel:$("#cHostSel").value, hostImgModel:$("#iHostSel").value, hostUseChar:$("#cHostChar").checked,
+  await saveCfg({ txtSrc, imgSrc, hostTxtModel:"", hostImgModel:$("#iHostSel").value, hostUseChar:true,
     base:$("#cBase").value.trim(),key:$("#cKey").value.trim(),model:$("#cModel").value.trim(),
     imgBase:$("#iBase").value.trim(),imgKey:$("#iKey").value.trim(),imgModel:$("#iModel").value.trim(),imgSize:$("#iSize").value.trim()
   }); $("#mApi").classList.remove("on"); await refreshState(); refreshGenHint(); toast("已保存接口"); };
@@ -2143,7 +2144,7 @@ $("#cFetch").onclick=async()=>{ const base=$("#cBase").value.trim(),key=$("#cKey
   try{ const ids=await fetchModels({base,key}); const sel=$("#cModelSel"); sel.innerHTML='<option value="">— 从列表选一个 —</option>'; ids.forEach(id=>{ const o=document.createElement("option"); o.value=id; o.textContent=id; sel.appendChild(o); }); sel.style.display=""; const cur=$("#cModel").value.trim(); if(cur&&ids.includes(cur)) sel.value=cur; $("#cInfo").textContent="✓ 拉到 "+ids.length+" 个"; }catch(e){ $("#cInfo").textContent="✕ "+(e&&e.message||e); } };
 $("#cModelSel").onchange=()=>{ const v=$("#cModelSel").value; if(v) $("#cModel").value=v; };
 $("#cTest").onclick=async()=>{ const host=(document.querySelector("#cSrcSeg button.on")||{}).dataset&&document.querySelector("#cSrcSeg button.on").dataset.s==="host";
-  const cfg=host?{txtSrc:"host",hostTxtModel:$("#cHostSel").value}:{base:$("#cBase").value.trim(),key:$("#cKey").value.trim(),model:$("#cModel").value.trim()};
+  const cfg=host?{txtSrc:"host",hostTxtModel:"",hostUseChar:true,charId:(_cfg&&_cfg.charId)||""}:{base:$("#cBase").value.trim(),key:$("#cKey").value.trim(),model:$("#cModel").value.trim()};
   if(!txtReady(cfg)){ $("#cInfo").textContent="都要填"; return; } $("#cInfo").textContent="测试中…";
   try{ const t=await directLLM(cfg,[{role:"user",content:"只回复两个字：在的"}],0.3); $("#cInfo").textContent="✓ 通了："+(t||"").slice(0,20); }catch(e){ $("#cInfo").textContent="✕ "+(e&&e.message||e); } };
 
