@@ -352,7 +352,7 @@
   .poi-btk{width:65px;height:3px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);overflow:hidden}
   .poi-bfl{height:100%;background:var(--live);width:0%;transition:width 1.6s ease-in-out}
   /* 信息面板 */
-  .poi-inf{position:absolute;font-size:9px;line-height:1.7;letter-spacing:.3px;color:rgba(230,80,70,.95);text-shadow:0 0 6px rgba(0,0,0,.95),0 1px 3px rgba(0,0,0,.9);left:3%;right:3%;max-height:calc(48% - 30px);overflow-y:auto;overflow-x:hidden;scrollbar-width:none}
+  .poi-inf{position:absolute;font-size:9px;line-height:1.75;letter-spacing:.3px;color:rgba(230,80,70,.95);text-shadow:0 0 6px rgba(0,0,0,.95),0 1px 3px rgba(0,0,0,.9);left:3%;right:3%;max-height:62%;overflow-y:hidden;overflow-x:hidden;scrollbar-width:none}
   /* 双击放大后扫描提示 */
   .cam-zhint{position:absolute;bottom:34px;left:50%;transform:translateX(-50%);font-size:10px;letter-spacing:2.5px;color:rgba(212,10,4,.9);pointer-events:none;text-shadow:0 0 8px rgba(212,10,4,.6),0 1px 3px rgba(0,0,0,.9);background:rgba(0,0,0,.45);padding:4px 12px;border:1px solid rgba(212,10,4,.35);border-radius:6px;animation:hintfade 3s ease forwards;white-space:nowrap}
   .poi-inf::-webkit-scrollbar{display:none}
@@ -1153,6 +1153,7 @@ function _poiExtract(r){ if(r==null) return ""; if(typeof r==="string") return r
   return r.content||r.text||(r.message&&r.message.content)||(r.choices&&r.choices[0]&&r.choices[0].message&&r.choices[0].message.content)||(r.data&&(r.data.content||r.data.text))||""; }
 async function capturePoiImg(cam, ox, oy){
   let img=cam.querySelector("#panoImg");
+  const isPano=!!img;
   if(!img){ const all=cam.querySelectorAll("#camTrack img, .cam-track img"); img=all[roomIdx]||all[0]||null; }
   if(!img||!img.src) return null;
   try{
@@ -1160,16 +1161,39 @@ async function capturePoiImg(cam, ox, oy){
     const url=URL.createObjectURL(blob);
     const im=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=url;});
     URL.revokeObjectURL(url);
-    /* 裁剪：取点击位置周围 50% 的区域，让 AI 看清楚那个位置 */
-    const fx=(ox!=null?ox:50)/100, fy=(oy!=null?oy:50)/100;
-    const frac=0.52;
+    let fx=(ox!=null?ox:50)/100, fy=(oy!=null?oy:50)/100;
+    if(isPano && im.width>0 && im.height>0){
+      /* 全景图修正：同时修正 pan 偏移（X）和上方裁切偏移（Y） */
+      const pm=(img.style.transform||'').match(/translateX\(([+-]?\d*\.?\d+)px\)/);
+      const panPx=pm?parseFloat(pm[1]):0; /* ≤0，向左移动 */
+      const topPm=(img.style.top||'').match(/([+-]?\d*\.?\d+)%/);
+      const topFrac=topPm?parseFloat(topPm[1])/100:0; /* 例如 -0.25 代表上移 25% */
+      const camW=cam.clientWidth||1, camH=cam.clientHeight||1;
+      const imgCSSW=img.clientWidth||camW;
+      const imgCSSH=img.clientHeight||camH;
+      const topOffsetPx=topFrac*camH; /* 负数：图像顶部在 cam 顶部上方 */
+      /* 点击 (ox%, oy%) 对应图像 CSS 坐标 */
+      const clickCSSX=-panPx+(ox/100)*camW;
+      const clickCSSY=(oy/100)*camH-topOffsetPx; /* topOffsetPx<0 → -topOffsetPx>0 */
+      fx=Math.max(0,Math.min(1,clickCSSX/imgCSSW));
+      fy=Math.max(0,Math.min(1,clickCSSY/imgCSSH));
+    }
+    /* 裁剪：取点击位置周围 18% 区域，聚焦准星目标 */
+    const frac=0.18;
     const sw=im.width*frac, sh=im.height*frac;
     const sx=Math.max(0,Math.min(im.width-sw, im.width*fx - sw/2));
     const sy=Math.max(0,Math.min(im.height-sh, im.height*fy - sh/2));
-    const max=900, scale=Math.min(1,max/Math.max(sw,sh));
+    const max=960, scale=Math.min(1,max/Math.max(sw,sh));
     const cv=document.createElement("canvas"); cv.width=Math.round(sw*scale); cv.height=Math.round(sh*scale);
-    cv.getContext("2d").drawImage(im,sx,sy,sw,sh,0,0,cv.width,cv.height);
-    return cv.toDataURL("image/jpeg",0.85);
+    const ctx=cv.getContext("2d");
+    ctx.drawImage(im,sx,sy,sw,sh,0,0,cv.width,cv.height);
+    /* 在裁剪图中心画十字准星，让 AI 明确知道目标点 */
+    const cx=cv.width/2, cy=cv.height/2, arm=Math.min(cv.width,cv.height)*0.08;
+    ctx.strokeStyle="rgba(255,40,40,0.85)"; ctx.lineWidth=Math.max(2,Math.round(cv.width/200));
+    ctx.beginPath(); ctx.moveTo(cx-arm,cy); ctx.lineTo(cx+arm,cy); ctx.moveTo(cx,cy-arm); ctx.lineTo(cx,cy+arm); ctx.stroke();
+    ctx.strokeStyle="rgba(255,40,40,0.5)"; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(cx,cy,arm*1.3,0,Math.PI*2); ctx.stroke();
+    return cv.toDataURL("image/jpeg",0.88);
   }catch(e){ console.warn("[POI] capture failed:",e); return null; }
 }
 async function poiVisionCall(cfg, imgB64, text){
@@ -1240,7 +1264,10 @@ async function poiVisionCall(cfg, imgB64, text){
   }
   return null;
 }
-function _poiValid(text){ if(!text||!text.trim()) return false; return /^[A-Z][A-Z\s/]+[:：]/m.test(text)&&(text.match(/^[A-Z][A-Z\s/]+[:：]/gm)||[]).length>=3; }
+function _poiValid(text){ if(!text||!text.trim()) return false;
+  /* 允许全大写或混大小写的 KEY: 格式，至少 2 行 */
+  const rows=(text.match(/^[A-Za-z][A-Za-z\s/]+[:：]/gm)||[]).length;
+  return rows>=2; }
 async function poiAnalyze(ox,oy){
   poiDismiss();
   const cfg=await getCfg();
@@ -1251,7 +1278,7 @@ async function poiAnalyze(ox,oy){
   const above=oy>40;
   const clsT=above?`calc(${oy}% - 70px)`:`calc(${oy}% + 62px)`;
   const barT=above?`calc(${oy}% - 46px)`:`calc(${oy}% + 86px)`;
-  const infS=oy<50?"bottom:24px":"top:18px";
+  const infS=oy<50?"bottom:20px":"top:32px"; /* top:32px 避开 HUD 行 */
   const rid=String(Math.floor(Math.random()*1000)).padStart(3,"0")+"-"+String(Math.floor(Math.random()*100)).padStart(2,"0")+"-"+String(Math.floor(Math.random()*10000)).padStart(4,"0");
   const ov=document.createElement("div"); ov.className="poi-ov";
   ov.innerHTML=
@@ -1272,25 +1299,22 @@ async function poiAnalyze(ox,oy){
   const poiSys="你是疑犯追踪里The Machine的终端AI。严格按指定格式输出监控分析，不要输出代码、教程或任何与格式无关的内容。";
   const visionPrompt=`这是「${curRoom.name||"房间"}」的监控截图局部放大图——图像已裁剪到操作员标记的${posDesc}区域，画面中心就是被锁定目标。CAM:${camLabel(curRoom)} ${hh}:${mm}。监控对象：${cn}（${locInfo}）。
 
-仔细看图片中心/主体是什么——可能是家具、物品、装饰品或人物。直接识别图中可见的具体事物，给出真实名称。
+图片正中心有一个红色十字准星标记（⊕），那就是锁定目标。识别准星正对着的那一个物体，忽略准星以外的一切。可能是家具、电器、装饰品或人物——直接给出真实名称。
 
-严格按此格式输出（物品示例）：
+严格按此格式输出（只输出这10行，不要多也不要少）：
 RELEVANT
 MODE:OBJECT
-OBJECT ID:[图中实际看到的具体物品名，如 毛绒玩偶/书桌/台灯/植物/抱枕]
-CLASSIFICATION:[类别，如 装饰物/家具/电子设备/书籍/玩具]
-ORIGIN:[结合记忆推测来历，无记录则写 未知]
-FIRST OBSERVED:[首次出现时间，无记录则写 未知]
-CONDITION:[外观状态]
-OWNER:${cn}
-SIGNIFICANCE:[对主人的意义]
-USAGE FREQUENCY:[使用频率]
-ANOMALY:[异常情况，无则写 无异常]
-EMOTIONAL LINK:[情感关联]
-ASSESSMENT:[综合评估]
+OBJECT ID:[准星中心最显眼的单个物体名称，不描述周边物品]
+CLASSIFICATION:[物品类别]
+ORIGIN:[来历，结合角色记忆，无记录写 未知]
+LOCATION:[从图像透视推断物品在房间里的实际位置，例：靠北墙/房间角落/窗边/房间中央；严禁使用"画面左/右/中央/上/下"等屏幕方位词]
+CONDITION:[物品当前物理状态，如：完好/使用中/损坏/翻开/关闭；不描述位置]
+SIGNIFICANCE:[对 ${cn} 的意义]
+ANOMALY:[异常，无则写 无]
+ASSESSMENT:[一句话综合评估]
 
-人物则用MODE:PERSONNEL，字段：NAME/STATUS/CURRENT LOCATION/ACTIVITY/OCCUPATION/MOOD STATE/BEHAVIORAL PATTERN/ANOMALY/THREAT LEVEL/VIOLENCE PROBABILITY/ASSESSMENT。
-结合角色记忆判断物品来历。12行，冷峻终端风格。只输出分析结果，不要解释。`;
+人物时用MODE:PERSONNEL，字段：NAME/STATUS/ACTIVITY/MOOD STATE/ANOMALY/ASSESSMENT。
+只输出分析结果，不解释。冷峻终端风格。`;
   const textPrompt=`分析「${curRoom.name||"房间"}」。CAM:${camLabel(curRoom)} ${hh}:${mm}。监控对象：${cn}（${locInfo}）。
 操作员锁定了${posDesc}区域。根据房间用途、角色物品和记忆，推测该位置最可能是什么。
 
@@ -1313,29 +1337,19 @@ ASSESSMENT:核心个人物品
 结合角色记忆判断物品来历（用户送的礼物、何时出现）。12行，冷峻终端风格。只输出分析结果。`;
   try{
     let out=null, via="";
-    /* 1. 视觉识别（多格式） */
+    /* 1. 优先视觉识别 */
     if(frameImg){
       out=await poiVisionCall(cfg, frameImg, visionPrompt);
-      if(_poiValid(out)) via="vision"; else out=null;
+      if(_poiValid(out)) via="vision"; else { console.warn("[POI] vision invalid:",out&&out.slice(0,200)); out=null; }
     }
     if(my!==_poiTk) return;
-    /* 2. directLLM / hostChat（带 dossier，不用 hostGenerate 避免注入过多上下文） */
-    if(!out&&txtReady(cfg)){
-      const d=await dossier(cfg.charId);
-      const userMsg=[dossierText(d),"",cfg.routine?("【TA 的作息参考】"+cfg.routine):"","",textPrompt].filter(Boolean).join("\n");
-      const wb=worldbookInject(dossierText(d)+" "+curRoom.name);
-      out=await directLLM(cfg, buildMsgs(cfg,poiSys,wb,userMsg));
-      if(_poiValid(out)) via="directLLM"; else if(out&&out.trim()){ console.warn("[POI] directLLM invalid output:",out.slice(0,200)); out=null; }
+    /* 2. 视觉识别失败时：明确告知，不用文字 LLM 瞎猜物品 */
+    if(!out){
+      const noImg=!frameImg?"图像捕获失败":"视觉接口返回无效结果";
+      throw new Error("无法识别——"+noImg+"。请确认接口配置的模型支持视觉能力（如 GPT-4o / Claude 3+ / Gemini 1.5+）。");
     }
     if(my!==_poiTk) return;
-    /* 3. hostGenerate 兜底（简短指令） */
-    if(!out&&hostGenReady(cfg)){
-      out=await hostGenerate(cfg.charId, "[重要] 不要输出代码。"+textPrompt);
-      if(_poiValid(out)) via="hostGen"; else if(out&&out.trim()){ console.warn("[POI] hostGen invalid output:",out.slice(0,200)); out=null; }
-    }
-    if(my!==_poiTk) return;
-    console.log("[POI] result via:",via||"none","img:",!!frameImg);
-    if(!out||!out.trim()){ throw new Error("分析无有效输出"); }
+    console.log("[POI] result via:",via,"img:",!!frameImg);
     const ret=ov.querySelector(".poi-ret"); if(ret) ret.classList.add("done");
     const lines=out.trim().split(/\n/).map(l=>l.trim()).filter(Boolean);
     let cls="RELEVANT",data=lines;
@@ -1369,7 +1383,7 @@ async function _poiType(lines,tk){
       for(let i=0;i<line.length;i++){ if(_poiTk!==tk) return; cur.before(document.createTextNode(line[i])); await new Promise(r=>setTimeout(r,12+Math.random()*16)); }
       cur.remove();
     }
-    box.scrollTop=box.scrollHeight;
+    /* 不自动滚底——保持 OBJECT ID 在顶部始终可见 */
     await new Promise(r=>setTimeout(r,55+Math.random()*70));
   }
 }
