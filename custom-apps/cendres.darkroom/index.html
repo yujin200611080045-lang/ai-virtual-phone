@@ -323,44 +323,49 @@
   .keypad button:active{background:var(--panel2)}
   .lock .msg{font-size:12px;color:var(--sub);min-height:16px}
   /* POI Machine 分析叠层 */
-  .poi-ov{position:absolute;inset:0;z-index:8;pointer-events:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:hidden}
-  /* 圆形瞄准镜 — 外圈虚线旋转 */
-  .poi-ret{position:absolute;width:100px;height:100px;border-radius:50%;border:1.8px dashed rgba(200,200,200,.35);animation:poiRetIn .35s ease-out,poiSpin 14s linear infinite}
-  .poi-ret::before{content:"";position:absolute;inset:10px;border-radius:50%;border:1px solid rgba(200,200,200,.18)}
-  .poi-ret .xh{position:absolute;background:var(--live);box-shadow:0 0 3px var(--live)}
-  .poi-ret .xn{width:2.5px;height:12px;top:-4px;left:50%;transform:translateX(-50%)}
-  .poi-ret .xs{width:2.5px;height:12px;bottom:-4px;left:50%;transform:translateX(-50%)}
-  .poi-ret .xe{width:12px;height:2.5px;right:-4px;top:50%;transform:translateY(-50%)}
-  .poi-ret .xw{width:12px;height:2.5px;left:-4px;top:50%;transform:translateY(-50%)}
-  .poi-ret .ct{position:absolute;width:4px;height:4px;border:1px solid rgba(200,200,200,.5);top:50%;left:50%;transform:translate(-50%,-50%)}
-  @keyframes poiRetIn{0%{opacity:0;transform:translate(-50%,-50%) scale(1.5)}100%{opacity:1;transform:translate(-50%,-50%) scale(1)}}
-  @keyframes poiSpin{0%{transform:translate(-50%,-50%) rotate(0deg)}100%{transform:translate(-50%,-50%) rotate(360deg)}}
-  .poi-ret.done{animation:none;transform:translate(-50%,-50%);border-style:solid;border-color:rgba(200,200,200,.25)}
-  /* 角落L型标记 */
+  /* POI · The Machine 视角：白框=普通人/物（机器默认），黄框=知道机器存在的人（ADMIN/ASSET），红框=威胁 */
+  .poi-ov{position:absolute;inset:0;z-index:8;pointer-events:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:hidden;--pc:rgba(245,245,245,.95);--pcs:rgba(255,255,255,.35);--pcd:rgba(245,245,245,.5)}
+  .poi-ov.y{--pc:rgba(250,212,30,.97);--pcs:rgba(250,212,30,.4);--pcd:rgba(250,212,30,.55)}
+  .poi-ov.r{--pc:rgba(228,36,28,.97);--pcs:rgba(228,36,28,.4);--pcd:rgba(228,36,28,.55)}
+  /* 机器方框：虚线框 + 实线四角 + 四边中点向内的准星短线 */
+  .poi-box{position:absolute;width:96px;height:96px;transform:translate(-50%,-50%);animation:poiBoxIn .4s cubic-bezier(.2,.8,.3,1)}
+  .poi-box .bd{position:absolute;inset:0;border:1.5px dashed var(--pcd);filter:drop-shadow(0 0 1px rgba(0,0,0,.9))}
+  .poi-box .c{position:absolute;width:15px;height:15px;border:0 solid var(--pc);filter:drop-shadow(0 0 1.5px rgba(0,0,0,.9))}
+  .poi-box .c.tl{top:-1px;left:-1px;border-top-width:2.5px;border-left-width:2.5px}
+  .poi-box .c.tr{top:-1px;right:-1px;border-top-width:2.5px;border-right-width:2.5px}
+  .poi-box .c.bl{bottom:-1px;left:-1px;border-bottom-width:2.5px;border-left-width:2.5px}
+  .poi-box .c.br{bottom:-1px;right:-1px;border-bottom-width:2.5px;border-right-width:2.5px}
+  .poi-box .t{position:absolute;background:var(--pc);box-shadow:0 0 2px rgba(0,0,0,.9)}
+  .poi-box .t.n{width:2px;height:11px;top:0;left:50%;transform:translateX(-50%)}
+  .poi-box .t.s{width:2px;height:11px;bottom:0;left:50%;transform:translateX(-50%)}
+  .poi-box .t.w{width:11px;height:2px;left:0;top:50%;transform:translateY(-50%)}
+  .poi-box .t.e{width:11px;height:2px;right:0;top:50%;transform:translateY(-50%)}
+  .poi-box .bd,.poi-box .t{animation:poiScanBl .7s steps(2,end) infinite}
+  .poi-box.done .bd,.poi-box.done .t{animation:none}
+  @keyframes poiBoxIn{0%{opacity:0;width:200px;height:200px}60%{opacity:1}100%{opacity:1;width:96px;height:96px}}
+  @keyframes poiScanBl{0%{opacity:1}100%{opacity:.35}}
+  /* 全屏四角 */
   .poi-mk{position:absolute;width:12px;height:12px}
-  .poi-mk::before,.poi-mk::after{content:"";position:absolute;background:rgba(212,10,4,.55)}
+  .poi-mk::before,.poi-mk::after{content:"";position:absolute;background:var(--pcd)}
   .poi-mk.tl{top:1%;left:1%}.poi-mk.tl::before{width:1.5px;height:100%;left:0;top:0}.poi-mk.tl::after{height:1.5px;width:100%;top:0;left:0}
   .poi-mk.tr{top:1%;right:1%}.poi-mk.tr::before{width:1.5px;height:100%;right:0;top:0}.poi-mk.tr::after{height:1.5px;width:100%;top:0;right:0}
   .poi-mk.bl{bottom:1%;left:1%}.poi-mk.bl::before{width:1.5px;height:100%;left:0;bottom:0}.poi-mk.bl::after{height:1.5px;width:100%;bottom:0;left:0}
   .poi-mk.br{bottom:1%;right:1%}.poi-mk.br::before{width:1.5px;height:100%;right:0;bottom:0}.poi-mk.br::after{height:1.5px;width:100%;bottom:0;right:0}
-  /* 分类标签 RELEVANT / IRRELEVANT */
-  .poi-cls{position:absolute;font-size:11px;font-weight:700;letter-spacing:3px;color:var(--live);padding:2px 10px;border:1.5px solid var(--live);background:rgba(0,0,0,.72);text-shadow:0 0 6px rgba(212,10,4,.4);white-space:nowrap;transform:translateX(-50%);opacity:0}
+  /* 分类标签：实色底 + 黑字，贴在框的上/下沿 */
+  .poi-cls{position:absolute;font-size:10px;font-weight:700;letter-spacing:2.5px;color:#000;padding:1px 7px;background:var(--pc);box-shadow:0 0 4px rgba(0,0,0,.8);white-space:nowrap;transform:translateX(-50%);opacity:0}
   .poi-cls.show{opacity:1;animation:poiClsIn .25s ease-out}
   @keyframes poiClsIn{0%{opacity:0;transform:translateX(-50%) scale(1.06)}100%{opacity:1;transform:translateX(-50%) scale(1)}}
-  /* 扫描进度条 */
-  .poi-barw{position:absolute;transform:translateX(-50%);display:flex;align-items:center;gap:4px;font-size:7px;letter-spacing:.6px;color:rgba(212,10,4,.7);white-space:nowrap;text-shadow:0 0 4px rgba(0,0,0,.9),0 1px 2px rgba(0,0,0,.8)}
-  .poi-btk{width:65px;height:3px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);overflow:hidden}
-  .poi-bfl{height:100%;background:var(--live);width:0%;transition:width 1.6s ease-in-out}
-  /* 信息面板 */
-  .poi-inf{position:absolute;font-size:9px;line-height:1.75;letter-spacing:.3px;color:rgba(230,80,70,.95);text-shadow:0 0 6px rgba(0,0,0,.95),0 1px 3px rgba(0,0,0,.9);left:3%;right:3%;max-height:62%;overflow-y:hidden;overflow-x:hidden;scrollbar-width:none}
-  /* 双击放大后扫描提示 */
-  .cam-zhint{position:absolute;bottom:34px;left:50%;transform:translateX(-50%);font-size:10px;letter-spacing:2.5px;color:rgba(212,10,4,.9);pointer-events:none;text-shadow:0 0 8px rgba(212,10,4,.6),0 1px 3px rgba(0,0,0,.9);background:rgba(0,0,0,.45);padding:4px 12px;border:1px solid rgba(212,10,4,.35);border-radius:6px;animation:hintfade 3s ease forwards;white-space:nowrap}
+  .poi-barw{position:absolute;transform:translateX(-50%);display:flex;align-items:center;gap:4px;font-size:7px;letter-spacing:.6px;color:var(--pc);white-space:nowrap;text-shadow:0 0 4px rgba(0,0,0,.9),0 1px 2px rgba(0,0,0,.8)}
+  .poi-btk{width:65px;height:3px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);overflow:hidden}
+  .poi-bfl{height:100%;background:var(--pc);width:0%;transition:width 1.6s ease-in-out}
+  .poi-inf{position:absolute;font-size:9px;line-height:1.75;letter-spacing:.3px;color:rgba(235,235,235,.92);text-shadow:0 0 6px rgba(0,0,0,.95),0 1px 3px rgba(0,0,0,.9);left:3%;right:3%;max-height:62%;overflow-y:hidden;overflow-x:hidden;scrollbar-width:none}
   .poi-inf::-webkit-scrollbar{display:none}
   .poi-inf .pi{display:block;white-space:normal;word-break:break-word;opacity:0;animation:poiFd .1s ease forwards}
   @keyframes poiFd{to{opacity:1}}
-  .poi-inf .pk{color:rgba(212,10,4,.95);font-weight:600;letter-spacing:1px}
-  .poi-cur{display:inline-block;width:5px;height:10px;background:rgba(212,10,4,.8);animation:poiBk .5s step-end infinite;vertical-align:middle;margin-left:1px}
+  .poi-inf .pk{color:var(--pc);font-weight:600;letter-spacing:1px}
+  .poi-cur{display:inline-block;width:5px;height:10px;background:var(--pc);animation:poiBk .5s step-end infinite;vertical-align:middle;margin-left:1px}
   @keyframes poiBk{0%,100%{opacity:1}50%{opacity:0}}
+  .cam-zhint{position:absolute;bottom:34px;left:50%;transform:translateX(-50%);font-size:10px;letter-spacing:2.5px;color:rgba(212,10,4,.9);pointer-events:none;text-shadow:0 0 8px rgba(212,10,4,.6),0 1px 3px rgba(0,0,0,.9);background:rgba(0,0,0,.45);padding:4px 12px;border:1px solid rgba(212,10,4,.35);border-radius:6px;animation:hintfade 3s ease forwards;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -1276,14 +1281,14 @@ async function poiAnalyze(ox,oy){
   const my=++_poiTk, cam=$(".cam"); if(!cam) return;
   ox=ox||50; oy=oy||50;
   const above=oy>40;
-  const clsT=above?`calc(${oy}% - 70px)`:`calc(${oy}% + 62px)`;
-  const barT=above?`calc(${oy}% - 46px)`:`calc(${oy}% + 86px)`;
+  const clsT=above?`calc(${oy}% - 66px)`:`calc(${oy}% + 52px)`;
+  const barT=above?`calc(${oy}% - 80px)`:`calc(${oy}% + 72px)`;
   const infS=oy<50?"bottom:20px":"top:32px"; /* top:32px 避开 HUD 行 */
   const rid=String(Math.floor(Math.random()*1000)).padStart(3,"0")+"-"+String(Math.floor(Math.random()*100)).padStart(2,"0")+"-"+String(Math.floor(Math.random()*10000)).padStart(4,"0");
   const ov=document.createElement("div"); ov.className="poi-ov";
   ov.innerHTML=
     '<div class="poi-mk tl"></div><div class="poi-mk tr"></div><div class="poi-mk bl"></div><div class="poi-mk br"></div>'+
-    `<div class="poi-ret" style="left:${ox}%;top:${oy}%;transform:translate(-50%,-50%)"><span class="xh xn"></span><span class="xh xs"></span><span class="xh xe"></span><span class="xh xw"></span><span class="ct"></span></div>`+
+    `<div class="poi-box" style="left:${ox}%;top:${oy}%"><i class="bd"></i><i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i><i class="t n"></i><i class="t s"></i><i class="t w"></i><i class="t e"></i></div>`+
     `<div class="poi-cls" style="left:${ox}%;top:${clsT}" id="poiCls"></div>`+
     `<div class="poi-barw" style="left:${ox}%;top:${barT}"><span>SCANNING</span><div class="poi-btk"><div class="poi-bfl" id="poiBfl"></div></div><span>${rid}</span></div>`+
     `<div class="poi-inf" style="${infS}" id="poiInf"></div>`;
@@ -1302,7 +1307,7 @@ async function poiAnalyze(ox,oy){
 图片正中心有一个红色十字准星标记（⊕），那就是锁定目标。识别准星正对着的那一个物体，忽略准星以外的一切。可能是家具、电器、装饰品或人物——直接给出真实名称。
 
 严格按此格式输出（只输出这10行，不要多也不要少）：
-RELEVANT
+IRRELEVANT
 MODE:OBJECT
 OBJECT ID:[准星中心最显眼的单个物体名称，不描述周边物品]
 CLASSIFICATION:[物品类别]
@@ -1314,6 +1319,7 @@ ANOMALY:[异常，无则写 无]
 ASSESSMENT:[一句话综合评估]
 
 人物时用MODE:PERSONNEL，字段：NAME/STATUS/ACTIVITY/MOOD STATE/ANOMALY/ASSESSMENT。
+第一行分级（机器的框色）：物品一律 IRRELEVANT；普通人 IRRELEVANT；操作员本人（用户）写 ADMIN；知道自己被监控/知道这套系统存在的人写 ASSET；持械或有暴力威胁的人写 THREAT。
 只输出分析结果，不解释。冷峻终端风格。`;
   const textPrompt=`分析「${curRoom.name||"房间"}」。CAM:${camLabel(curRoom)} ${hh}:${mm}。监控对象：${cn}（${locInfo}）。
 操作员锁定了${posDesc}区域。根据房间用途、角色物品和记忆，推测该位置最可能是什么。
@@ -1350,10 +1356,13 @@ ASSESSMENT:核心个人物品
     }
     if(my!==_poiTk) return;
     console.log("[POI] result via:",via,"img:",!!frameImg);
-    const ret=ov.querySelector(".poi-ret"); if(ret) ret.classList.add("done");
+    const ret=ov.querySelector(".poi-box"); if(ret) ret.classList.add("done");
     const lines=out.trim().split(/\n/).map(l=>l.trim()).filter(Boolean);
-    let cls="RELEVANT",data=lines;
-    if(lines[0]&&/^(RELEVANT|IRRELEVANT)$/i.test(lines[0].replace(/[^A-Za-z]/g,""))){ cls=lines[0].replace(/[^A-Za-z]/g,"").toUpperCase(); data=lines.slice(1); }
+    let cls="IRRELEVANT",data=lines;
+    const c0=(lines[0]||"").replace(/[^A-Za-z]/g,"").toUpperCase();
+    if(/^(RELEVANT|IRRELEVANT|ADMIN|ASSET|THREAT)$/.test(c0)){ cls=c0; data=lines.slice(1); }
+    /* 机器配色：ADMIN/ASSET（知道机器存在的人）黄框；THREAT 红框；其余白框 */
+    ov.classList.add(cls==="ADMIN"||cls==="ASSET"?"y":cls==="THREAT"?"r":"w");
     if(data[0]&&/^MODE\s*[:：]/i.test(data[0])){ data=data.slice(1); }
     const clsEl=document.getElementById("poiCls"); if(clsEl){ clsEl.textContent=cls; clsEl.classList.add("show"); }
     await new Promise(r=>setTimeout(r,350));
@@ -1362,7 +1371,7 @@ ASSESSMENT:核心个人物品
   }catch(e){ console.warn("[POI] analysis error:",e);
     toast("POI: "+(e&&e.message||e));
     if(my!==_poiTk) return;
-    const ret=ov.querySelector(".poi-ret"); if(ret) ret.classList.add("done");
+    const ret=ov.querySelector(".poi-box"); if(ret) ret.classList.add("done");
     const clsEl=document.getElementById("poiCls"); if(clsEl){ clsEl.textContent="SIGNAL LOST"; clsEl.classList.add("show"); } }
 }
 async function _poiType(lines,tk){
