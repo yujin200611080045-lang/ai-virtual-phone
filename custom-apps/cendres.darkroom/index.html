@@ -179,6 +179,11 @@
   .yeargrp .cnt{font-size:11px;color:var(--sub);margin-left:2px}
   .slimrec{display:flex;align-items:center;gap:10px;padding:12px 14px;margin-bottom:8px;border-radius:14px;
     border:1px solid var(--line);background:rgba(30,26,24,.5);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer}
+  .slimrec .md,.slimrec .hm{white-space:nowrap}
+  .slimrec .rm{font-size:12px;color:var(--sub);flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .arc-line.now{color:#fff;text-shadow:0 0 8px rgba(212,10,4,.55)}
+  .rd-play{display:inline-flex;align-items:center;gap:6px;margin:4px 0 10px;font-size:12.5px;letter-spacing:1px;color:var(--amber);background:rgba(212,10,4,.1);border:1px solid rgba(212,10,4,.3);border-radius:9px;padding:6px 12px;cursor:pointer;font-family:inherit}
+  #hubSet{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
   .slimrec:active{transform:scale(.99);background:rgba(40,34,32,.6)}
   .slimrec .tp{font-size:10.5px;letter-spacing:1px;color:var(--amber);border:1px solid rgba(212,10,4,.3);border-radius:6px;padding:2px 7px;flex:0 0 auto}
   .slimrec .md{font-size:13.5px;color:var(--ink);letter-spacing:.5px}
@@ -730,6 +735,11 @@
   </div></div>
 
   <!-- reader -->
+  <div class="mask center" id="mFav"><div class="sheet" style="border-radius:20px;max-width:520px">
+    <h2 id="favTitle">收藏</h2>
+    <div id="favList" style="max-height:62vh;overflow:auto"></div>
+    <div class="acts" style="margin-top:12px"><button class="btn" id="favClose">关闭</button></div>
+  </div></div>
   <div class="mask center" id="mRead"><div class="sheet" style="border-radius:20px;max-width:520px">
     <h2 id="rdTitle">监控记录</h2>
     <div class="rec-body" id="rdBody" style="max-height:64vh;overflow:auto"></div>
@@ -1536,12 +1546,23 @@ function startCamClock(){ stopCamClock(); const tm=$("#camTm"); if(!tm) return;
   const tick=()=>{ const d=charNow(),p=n=>String(n).padStart(2,"0"); tm.textContent=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
   tick(); roomTimer=setInterval(tick,1000); }
 function stopCamClock(){ if(roomTimer){ clearInterval(roomTimer); roomTimer=null; } }
-function backToHub(){ stopCamClock(); stopCaptions(); curArchive=null; if(curRoom&&curRoom.field) logs=logs.filter(x=>x.roomId!==curRoom.id); curRoom=null; $("#roomView").hidden=true; $("#hub").hidden=false;
+function backToHub(){ stopCamClock(); stopCaptions(); curArchive=null; if(curRoom&&curRoom.field) logs=logs.filter(x=>x.roomId!==curRoom.id||x.fav); curRoom=null; $("#roomView").hidden=true; $("#hub").hidden=false;
   $("#topTitle").textContent=""; $("#topTag").textContent="MONITOR"; renderHub(); }
 let _hubFrom="home"; /* 房间选择页是从哪一面进来的：home＝选人进家，who＝机器搜索 */
 $("#brandBtn").onclick=()=>{ if(!$("#roomView").hidden){ backToHub(); return; }
   $("#intro").classList.add("on"); if(_hubFrom==="who") gotoWho(); else gotoHome(); };
-$("#hubSet").onclick=async()=>{ await refreshState(); $("#mSet").classList.add("on"); };
+(function(){ const b=$("#hubSet"); let t=null, long=false;
+  b.addEventListener("pointerdown",()=>{ long=false; clearTimeout(t); t=setTimeout(()=>{ long=true; try{ navigator.vibrate&&navigator.vibrate(15); }catch(e){} openFavs(); },550); });
+  ["pointerup","pointerleave","pointercancel"].forEach(ev=>b.addEventListener(ev,()=>clearTimeout(t)));
+  b.addEventListener("contextmenu",e=>e.preventDefault());
+  b.onclick=async()=>{ if(long){ long=false; return; } await refreshState(); $("#mSet").classList.add("on"); }; })();
+function openFavs(){ $("#favTitle").textContent="收藏 · "+((_cfg&&_cfg.charName)||"TA"); renderFavs(); $("#mFav").classList.add("on"); }
+function renderFavs(){ const box=$("#favList"); box.innerHTML=""; const cid=(_cfg&&_cfg.charId)||"";
+  const list=logs.filter(r=>r.fav&&recCharId(r)===cid).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  if(!list.length){ box.innerHTML='<div class="hint" style="text-align:center;padding:26px 0">还没有收藏。在监控记录里点 ☆ 就会收进这里。</div>'; return; }
+  list.forEach(r=>{ const row=slimRec(r); row.querySelector(".tp").insertAdjacentHTML("afterend",`<span class="rm">${esc(recRoomLabel(r))}</span>`); box.appendChild(row); }); }
+$("#favClose").onclick=()=>$("#mFav").classList.remove("on");
+$("#mFav").addEventListener("click",e=>{ if(e.target===$("#mFav")) $("#mFav").classList.remove("on"); });
 /* 对屋里说话（模拟：打字＝说出口，融进下一次生成） */
 function openTalk(){ $("#talkText").value=""; $("#mTalk").classList.add("on"); setTimeout(()=>{ try{$("#talkText").focus();}catch(e){} },60); }
 $("#talkCancel").onclick=()=>$("#mTalk").classList.remove("on");
@@ -1658,13 +1679,13 @@ function capDur(line){ return Math.max(1500,Math.min(5200, line.replace(/[*]/g,"
 async function voiceReady(charId){ try{ if(!api.voice||!api.voice.tts||!api.voice.readProfiles) return false;
   const p=await api.voice.readProfiles({characterId:charId}); return !!(p&&(p.selected||(p.profiles&&p.profiles.length))); }catch(e){ return false; } }
 /* 一句句出现；只有 TA 自己说的话([话])才生成语音，拟声和别人的话只出字幕 */
-async function playCaptions(items, useVoice, charId){ const el=$("#camCapTx"); if(!el||!items||!items.length){ setCamCap(""); return; }
+async function playCaptions(items, useVoice, charId, opts){ opts=opts||{}; const el=$("#camCapTx"); if(!el||!items||!items.length){ setCamCap(""); return; }
   const my=++capToken;
   /* 一开始就把所有要念的句子并发送去合成（最多 3 条同时），播到哪句时多半已经好了 */
   const jobs=new Map();
-  if(useVoice){ const want=items.filter(it=>it.speak&&it.tts); let idx=0;
-    const next=()=>{ if(my!==capToken||idx>=want.length) return; const it=want[idx++];
-      const p=_withTimeout(api.voice.tts({characterId:charId, text:it.tts}), 25000).then(sp=>(sp&&sp.dataUrl)||null).catch(()=>null);
+  if(useVoice){ const want=items.map((it,i)=>[it,i]).filter(([it])=>it.speak&&it.tts); let idx=0;
+    const next=()=>{ if(my!==capToken||idx>=want.length) return; const [it,i]=want[idx++];
+      const p=_withTimeout(api.voice.tts({characterId:charId, text:it.tts}), 25000).then(sp=>{ const u=(sp&&sp.dataUrl)||null; if(u&&opts.onClip) opts.onClip(i,u); return u; }).catch(()=>null);
       jobs.set(it,p); p.finally(next); };
     for(let k=0;k<3;k++) next(); }
   for(const it of items){ if(my!==capToken) return;
@@ -1715,14 +1736,14 @@ async function genSubtitles(){ const cfg=await getCfg();
     }
     const lines=parseCaptions(out);
     if(!lines.length){ toast("没收到字幕，换个站子/模型"); setCamCap(""); }
-    else { const rec={ roomId:curRoom.id, type:"收音", title:"收音 · "+(curRoom.name||"房间"), subs:lines.map(l=>l.text), text:"", view:"监控", talk:"", fav:false, createdAt:Date.now() };
+    else { const rec={ roomId:curRoom.id, type:"收音", title:"收音 · "+(curRoom.name||"房间"), subs:lines.map(l=>l.text), subItems:lines, audio:[], text:"", view:"监控", talk:"", fav:false, createdAt:Date.now() };
       try{ const cr=await saveLog(rec); rec.id=cr&&cr.id; }catch(e){} logs.unshift(rec); renderRoomLogs();
-      const useVoice=await voiceReady(cfg.charId); playCaptions(lines, useVoice, cfg.charId); if(!useVoice) toast("没配语音，静音只出字幕"); }
+      const useVoice=await voiceReady(cfg.charId); playCaptions(lines, useVoice, cfg.charId, {onClip:(i,url)=>keepClip(rec,i,url)}); if(!useVoice) toast("没配语音，静音只出字幕"); }
   }catch(e){ toast("收音失败："+(e&&e.message||e)); setCamCap(""); }
   if(mic){ mic.classList.remove("busy"); mic.style.pointerEvents=""; } }
 let collapsedYears=new Set();
 function slimDate(ts){ const d=new Date(ts||Date.now()); return { md:`${d.getMonth()+1}月${d.getDate()}日`, hm:`${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`, y:d.getFullYear() }; }
-function renderRoomLogs(){ const box=$("#roomLogs"); box.innerHTML=""; const all=roomLogsOf(curRoom.id).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+function renderRoomLogs(){ if(!curRoom) return; const box=$("#roomLogs"); box.innerHTML=""; const all=roomLogsOf(curRoom.id).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   if(!all.length){ box.innerHTML=`<div class="empty">这个房间还没有监控记录。<br>点「生成这一刻」看此刻，或点「搜索」翻出 TA 之前的片段。</div>`; return; }
   const shown=all.slice(0, logShown); let lastY=null;
   shown.forEach(r=>{ const y=new Date(r.createdAt||Date.now()).getFullYear();
@@ -1795,19 +1816,47 @@ async function customGenerate(query){ query=String(query||"").trim(); if(!query)
       try{ const cr=await saveLog(rec); rec.id=cr&&cr.id; }catch(e){} logs.unshift(rec); renderRoomLogs(); const si=$("#searchInput"); if(si) si.value=""; $("#mSearch").classList.remove("on"); openRead(rec); }
   }catch(e){ toast("生成失败："+(e&&e.message||e)); }
   if(go){ go.disabled=false; go.textContent=old; } }
-async function toggleFav(r){ r.fav=!r.fav; try{ if(r.id) await api.db.update("logs",r.id,{roomId:r.roomId,type:r.type,view:r.view||"",talk:r.talk||"",text:r.text||"",title:r.title||"",subs:r.subs||[],fav:r.fav,createdAt:r.createdAt}); }catch(e){} renderRoomLogs(); }
-async function delRec(r){ try{ if(r.id) await api.db.delete("logs",r.id); }catch(e){} logs=logs.filter(x=>x!==r); renderRoomLogs(); }
+async function toggleFav(r){ r.fav=!r.fav;
+  if(isFieldRec(r)){ /* 外面那一页：收藏＝落盘（连同已经合成的声音），取消收藏＝删掉 */
+    if(r.fav&&!r.id){ const clips=r._clips||[]; r.audio=[];
+      for(let i=0;i<clips.length;i++){ if(clips[i]){ try{ const st=await api.media.put({dataUrl:clips[i]}); if(st&&st.ref) r.audio[i]=st.ref; }catch(e){} } }
+      try{ const cr=await api.db.create("logs",logData(r)); r.id=cr&&cr.id; }catch(e){} toast("已收藏，长按房间页底部的按钮能看到"); }
+    else if(!r.fav&&r.id){ await dropMedia(r); try{ await api.db.delete("logs",r.id); }catch(e){} r.id=null; r.audio=[]; } }
+  else await persistLog(r);
+  refreshLogViews(); }
+async function dropMedia(r){ for(const ref of (r.audio||[])){ if(ref){ try{ await api.media.delete({ref}); }catch(e){} } } }
+async function delRec(r){ await dropMedia(r); try{ if(r.id) await api.db.delete("logs",r.id); }catch(e){} logs=logs.filter(x=>x!==r); refreshLogViews(); }
 function subCore(x){ return String(x).replace(/[*]/g,"").replace(/[「」『』]/g,"").trim(); }
 function paras(t){ const ps=String(t||"").split(/\n+/).map(s=>s.trim()).filter(Boolean); if(!ps.length) return '<p class="arc-p">（空）</p>'; return ps.map(p=>`<p class="arc-p">${esc(p)}</p>`).join(""); }
 function openRead(r){ $("#rdTitle").textContent = r.title || (r.type+" 记录"); const box=$("#rdBody"); box.innerHTML="";
   const meta=document.createElement("div"); meta.className="arc-meta"; meta.textContent=`${typeTag(r)} · ${fmtTime(r.createdAt)}`; box.appendChild(meta);
   if(r.talk){ const t=document.createElement("div"); t.className="arc-you"; t.textContent="你说："+r.talk; box.appendChild(t); }
-  if(r.subs&&r.subs.length){ const sec=document.createElement("div"); sec.className="arc-sub"; sec.innerHTML=r.subs.map(x=>`<p class="arc-line">「${esc(subCore(x))}」</p>`).join(""); box.appendChild(sec); }
+  if(r.subs&&r.subs.length){
+    if(r.type==="收音"){ const b=document.createElement("button"); b.className="rd-play"; b.textContent="▶ 回放声音"; b.onclick=()=>replaySubs(r,b); box.appendChild(b); }
+    const sec=document.createElement("div"); sec.className="arc-sub"; sec.innerHTML=r.subs.map(x=>`<p class="arc-line">「${esc(subCore(x))}」</p>`).join(""); box.appendChild(sec); }
   if(r.text){ const sec=document.createElement("div"); sec.innerHTML=paras(r.text); box.appendChild(sec); }
   if(box.childNodes.length<=1) { const e=document.createElement("div"); e.textContent="（空）"; box.appendChild(e); }
   $("#mRead").classList.add("on"); }
-$("#rdClose").onclick=()=>$("#mRead").classList.remove("on");
-$("#mRead").addEventListener("click",e=>{ if(e.target===$("#mRead")) $("#mRead").classList.remove("on"); });
+function closeRead(){ stopReplay(); $("#mRead").classList.remove("on"); }
+$("#rdClose").onclick=closeRead;
+$("#mRead").addEventListener("click",e=>{ if(e.target===$("#mRead")) closeRead(); });
+/* 回放：逐句高亮，TA 说的话念出来——存过的声音直接放，没存到的现合成并补存 */
+let _rpTk=0;
+function stopReplay(){ _rpTk++; try{ if(api.voice&&api.voice.stopPlayback) api.voice.stopPlayback({}); }catch(e){} document.querySelectorAll("#rdBody .arc-line.now").forEach(x=>x.classList.remove("now")); }
+async function replaySubs(r,btn){ if(btn.dataset.on){ stopReplay(); btn.dataset.on=""; btn.textContent="▶ 回放声音"; return; }
+  stopReplay(); const my=++_rpTk; btn.dataset.on="1"; btn.textContent="■ 停止";
+  const items=subItemsOf(r); const ps=[...document.querySelectorAll("#rdBody .arc-line")]; const cid=recCharId(r);
+  const canTts=await voiceReady(cid);
+  for(let i=0;i<items.length;i++){ if(my!==_rpTk) return; const it=items[i];
+    ps.forEach(x=>x.classList.remove("now")); if(ps[i]){ ps[i].classList.add("now"); ps[i].scrollIntoView({block:"nearest",behavior:"smooth"}); }
+    let url=null; if(it.speak&&it.tts){ url=await clipOf(r,i);
+      if(!url&&canTts){ try{ const sp=await _withTimeout(api.voice.tts({characterId:cid,text:it.tts}),20000); url=sp&&sp.dataUrl; if(url) keepClip(r,i,url); }catch(e){} } }
+    if(my!==_rpTk) return;
+    if(url){ const dur=await _audioDur(url); const cap=Math.max(capDur(it.text), dur?dur*1000+600:capDur(it.text)+2500);
+      try{ await _withTimeout(api.voice.play({dataUrl:url}), cap); }catch(e){ try{ if(api.voice.stopPlayback) api.voice.stopPlayback({}); }catch(_){} } }
+    else await _sleep(Math.min(capDur(it.text),2200));
+    if(my!==_rpTk) return; await _sleep(220); }
+  if(my===_rpTk){ ps.forEach(x=>x.classList.remove("now")); btn.dataset.on=""; btn.textContent="▶ 回放声音"; } }
 
 /* ---------- 房间编辑 ---------- */
 let reRoom=null, reImgsArr=[], reTimesArr=[], reItemsArr=[], reAngles=2, _reFrom="hub", rePano="", rePanoAR=0, rePanoZoom=0, reVars=[];
@@ -2273,7 +2322,23 @@ $("#homeBack").onclick=()=>gotoWho();
    在家且那个房间有机位：直接切进家里的监控；否则：调出「最近的那台摄像头」，生成那个地方此刻的监控画面。 */
 /* 机器调出来的外面画面是一次性的：不存库、不进主页，离开就没了；在里面生成的记录也只活在这一页 */
 function fieldRoom(f){ return { id:"field_"+f.charId+"_"+f.at, field:true, name:f.place||"外面", pano:f.pano||"", panoAR:f.panoAR||1.5, panoZoom:f.panoZoom||zoomForAR(f.panoAR||1.5), images:[], variants:[], camId:f.camId||"", loc:f.loc||null }; }
-async function saveLog(rec){ if(String(rec&&rec.roomId||"").startsWith("field_")) return null; return await api.db.create("logs",rec); }
+async function saveLog(rec){ if(rec){ rec.charId=rec.charId||(_cfg&&_cfg.charId)||""; rec.roomName=rec.roomName||(curRoom&&curRoom.name)||""; }
+  if(isFieldRec(rec)) return null; return await api.db.create("logs",logData(rec)); }
+function isFieldRec(r){ return String(r&&r.roomId||"").startsWith("field_"); }
+/* 存库用的字段（_clips 这类只在内存里的不存） */
+function logData(r){ return { roomId:r.roomId, charId:r.charId||"", roomName:r.roomName||"", type:r.type, view:r.view||"", talk:r.talk||"", text:r.text||"", title:r.title||"", subs:r.subs||[], subItems:r.subItems||null, audio:r.audio||[], fav:!!r.fav, createdAt:r.createdAt }; }
+async function persistLog(r){ if(r&&r.id){ try{ await api.db.update("logs",r.id,logData(r)); }catch(e){} } }
+function recCharId(r){ return r.charId||((allRooms.find(x=>x.id===r.roomId)||{}).charId)||""; }
+function recRoomLabel(r){ if(isFieldRec(r)) return "外面 · "+(r.roomName||""); return ((allRooms.find(x=>x.id===r.roomId)||{}).name)||r.roomName||"房间"; }
+function refreshLogViews(){ if(curRoom) renderRoomLogs(); if($("#mFav").classList.contains("on")) renderFavs(); }
+/* 收音的声音：家里的记录一合成就存进媒体库；外面那一页的先放内存，收藏时才落盘 */
+async function keepClip(r,i,url){ if(!url) return; r._clips=r._clips||[]; r._clips[i]=url;
+  if(isFieldRec(r)&&!r.id) return;
+  try{ const st=await api.media.put({dataUrl:url}); if(st&&st.ref){ r.audio=r.audio||[]; r.audio[i]=st.ref; await persistLog(r); } }catch(e){} }
+async function clipOf(r,i){ if(r._clips&&r._clips[i]) return r._clips[i];
+  const ref=r.audio&&r.audio[i]; if(ref){ try{ const g=await api.media.get({ref}); if(g&&g.dataUrl){ r._clips=r._clips||[]; r._clips[i]=g.dataUrl; return g.dataUrl; } }catch(e){} }
+  return null; }
+function subItemsOf(r){ if(Array.isArray(r.subItems)&&r.subItems.length) return r.subItems; return parseCaptions((r.subs||[]).join("\n")); }
 function fieldPrompt(loc,place){ const l=loc||{};
   return [ "CCTV 监控摄像头画面："+(l.cam||"附近的监控摄像头")+"，高位俯拍，广角镜头，轻微鱼眼畸变，画面四角暗角",
     "地点："+place, l.scene||"",
