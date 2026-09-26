@@ -1294,74 +1294,14 @@ async function capturePoiImg(cam, ox, oy){
     return cv.toDataURL("image/jpeg",0.88);
   }catch(e){ console.warn("[POI] capture failed:",e); return null; }
 }
+/* 看图只有一条路：ai.generate 的 messages 里给消息挂 image（dataURL）。
+   ai.chat 会把图片当文字丢掉——模型看不到图只能瞎猜，所以不再走。
+   小手机那边的 API 配置要打开「图像识别」，否则图片会被降级成「[图片]」两个字。 */
 async function poiVisionCall(cfg, imgB64, text){
-  const ai=api&&api.ai;
-  const b64bare=imgB64.replace(/^data:image\/[^;]+;base64,/,"");
-  /* -- 策略 1：ai.chat — content 数组图片格式 -- */
-  if(ai&&ai.chat&&cfg.charId){
-    const fmts=[
-      [{type:"image_url",image_url:{url:imgB64}},{type:"text",text:text}],
-      [{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64bare}},{type:"text",text:text}]
-    ];
-    for(const content of fmts){
-      try{
-        const opt={messages:[{role:"user",content:content}],characterId:cfg.charId,character:cfg.charId};
-        if(cfg.hostTxtModel) opt.model=cfg.hostTxtModel;
-        const r=await ai.chat(opt);
-        const out=_poiExtract(r);
-        if(out&&out.trim()&&_poiValid(out)){ console.log("[POI] vision ok via ai.chat content"); return out; }
-      }catch(e){ console.warn("[POI] chat content fmt err:",e.message||e); }
-    }
-    /* 消息级 images 字段 */
-    const msgFmts=[
-      {role:"user",content:text,images:[imgB64]},
-      {role:"user",content:text,image:imgB64},
-      {role:"user",content:text,image_url:imgB64},
-      {role:"user",content:text,files:[{type:"image",url:imgB64}]}
-    ];
-    for(const msg of msgFmts){
-      try{
-        const opt={messages:[msg],characterId:cfg.charId,character:cfg.charId};
-        if(cfg.hostTxtModel) opt.model=cfg.hostTxtModel;
-        const r=await ai.chat(opt);
-        const out=_poiExtract(r);
-        if(out&&out.trim()&&_poiValid(out)){ console.log("[POI] vision ok via ai.chat msg-level"); return out; }
-      }catch(e){ console.warn("[POI] chat msg fmt err:",e.message||e); }
-    }
-    /* options 级图片 */
-    try{
-      const opt={messages:[{role:"user",content:text}],characterId:cfg.charId,character:cfg.charId,images:[imgB64]};
-      if(cfg.hostTxtModel) opt.model=cfg.hostTxtModel;
-      const r=await ai.chat(opt);
-      const out=_poiExtract(r);
-      if(out&&out.trim()&&_poiValid(out)){ console.log("[POI] vision ok via ai.chat opt-level"); return out; }
-    }catch(e){ console.warn("[POI] chat opt img err:",e.message||e); }
-  }
-  /* -- 策略 2：ai.generate 带图片参数 -- */
-  if(ai&&ai.generate&&cfg.charId){
-    const variants=[
-      {characterId:cfg.charId,instruction:text,images:[imgB64]},
-      {characterId:cfg.charId,instruction:text,attachments:[{type:"image",url:imgB64}]},
-      {characterId:cfg.charId,instruction:text,image:imgB64}
-    ];
-    for(const opts of variants){
-      try{
-        const r=await ai.generate(opts);
-        const out=_poiExtract(r);
-        if(out&&out.trim()&&_poiValid(out)){ console.log("[POI] vision ok via ai.generate"); return out; }
-      }catch(e){ console.warn("[POI] generate img err:",e.message||e); }
-    }
-  }
-  /* -- 策略 3：自填站子直连 API -- */
-  if(cfg.base&&cfg.key&&cfg.model){
-    const content=[{type:"image_url",image_url:{url:imgB64}},{type:"text",text:text}];
-    const r=await fetch(apiEndpoint(cfg.base),{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+cfg.key},
-      body:JSON.stringify({model:cfg.model,messages:[{role:"system",content:"You are The Machine from Person of Interest. Output terse surveillance intelligence."},{role:"user",content:content}],temperature:0.85,stream:false,max_tokens:800})});
-    if(!r.ok){ const t=await r.text().catch(()=>""); throw new Error("API "+r.status+": "+t.slice(0,120)); }
-    const j=await r.json(); const out=_poiExtract(j); if(out&&out.trim()) return out;
-  }
-  return null;
-}
+  const ai=api&&api.ai; if(!ai||!ai.generate||!cfg.charId) throw new Error("小手机没有 ai.generate");
+  const r=await ai.generate({ characterId:cfg.charId, instruction:text,
+    messages:[{ role:"user", content:"【监控截图】这是操作员锁定目标的那一帧画面。", image:imgB64 }] });
+  return _poiExtract(r); }
 function _poiValid(text){ if(!text||!text.trim()) return false;
   /* 允许全大写或混大小写的 KEY: 格式，至少 2 行 */
   const rows=(text.match(/^[A-Za-z][A-Za-z\s/]+[:：]/gm)||[]).length;
@@ -1429,6 +1369,7 @@ ANOMALY:[异常，无则写 无]
 ASSESSMENT:[一句话综合评估]
 
 第一行是机器的分级（决定框的颜色）：物品一律 IRRELEVANT；${cn}${knows?"已经知道自己被监控，写 ASSET":"并不知道自己被监控，写 IRRELEVANT"}；操作员本人（用户）写 ADMIN；别的知道自己被监控的人写 ASSET；持械或有暴力威胁的人写 THREAT；其他普通人写 IRRELEVANT。
+如果你其实看不到图片（只看到「[图片]」之类的文字、没有真正的画面），只输出一行：NO VISUAL——绝不要凭文字猜。
 只输出分析结果，不解释。冷峻终端风格。`;
   const textPrompt=`分析「${curRoom.name||"房间"}」。CAM:${camLabel(curRoom)} ${hh}:${mm}。监控对象：${cn}（${locInfo}）。
 操作员锁定了${posDesc}区域。根据房间用途、角色物品和记忆，推测该位置最可能是什么。
@@ -1455,6 +1396,7 @@ ASSESSMENT:核心个人物品
     /* 1. 优先视觉识别 */
     if(frameImg){
       out=await poiVisionCall(cfg, frameImg, visionPrompt);
+      if(out&&/NO\s*VISUAL/i.test(out)) throw new Error("模型没看到截图——去小手机设置 › API，把这个角色用的那个接口的「启用图像识别」打开（模型也要能看图）");
       if(_poiValid(out)) via="vision"; else { console.warn("[POI] vision invalid:",out&&out.slice(0,200)); out=null; }
     }
     if(my!==_poiTk) return;
