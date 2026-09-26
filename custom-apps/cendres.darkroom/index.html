@@ -209,6 +209,8 @@
   .mask{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);display:none;align-items:flex-end;z-index:20}
   .mask.on{display:flex}
   .mask.center{align-items:center;justify-content:center;padding:20px}
+  #mSearch{align-items:center;justify-content:center;padding:20px}
+  #mSearch .sheet{border-radius:22px;border:1px solid var(--line);padding-bottom:20px;box-shadow:0 12px 50px rgba(0,0,0,.6)}
   #mRead{padding-top:calc(var(--ai-phone-app-safe-top,88px) + 20px)}
   .sheet{width:100%;background:rgba(22,20,18,.94);backdrop-filter:blur(30px) saturate(150%);-webkit-backdrop-filter:blur(30px) saturate(150%);
     border-radius:22px 22px 0 0;border-top:1px solid var(--line);padding:18px 18px calc(20px + env(safe-area-inset-bottom,0));
@@ -1658,18 +1660,29 @@ async function voiceReady(charId){ try{ if(!api.voice||!api.voice.tts||!api.voic
 /* 一句句出现；只有 TA 自己说的话([话])才生成语音，拟声和别人的话只出字幕 */
 async function playCaptions(items, useVoice, charId){ const el=$("#camCapTx"); if(!el||!items||!items.length){ setCamCap(""); return; }
   const my=++capToken;
+  /* 一开始就把所有要念的句子并发送去合成（最多 3 条同时），播到哪句时多半已经好了 */
+  const jobs=new Map();
+  if(useVoice){ const want=items.filter(it=>it.speak&&it.tts); let idx=0;
+    const next=()=>{ if(my!==capToken||idx>=want.length) return; const it=want[idx++];
+      const p=_withTimeout(api.voice.tts({characterId:charId, text:it.tts}), 25000).then(sp=>(sp&&sp.dataUrl)||null).catch(()=>null);
+      jobs.set(it,p); p.finally(next); };
+    for(let k=0;k<3;k++) next(); }
   for(const it of items){ if(my!==capToken) return;
+    /* TA 说的话：先等这句的声音最多 3 秒，好了就字和声一起出；没好就先出字、这句静音，绝不干等 */
+    let url=null; if(useVoice && jobs.has(it)){ url=await Promise.race([jobs.get(it), _sleep(3000).then(()=>null)]); }
+    if(my!==capToken) return;
     el.style.opacity="0"; await _sleep(120); if(my!==capToken) return;
     el.className="sub"+((it.speak||it.other)?" speech":""); el.textContent=it.text; el.style.opacity="1";
-    if(useVoice && it.speak && it.tts){ let spoke=false;
-      try{ const sp=await _withTimeout(api.voice.tts({characterId:charId, text:it.tts}), 12000);
-        if(my!==capToken) return;
-        if(sp&&sp.dataUrl){ await _withTimeout(api.voice.play({dataUrl:sp.dataUrl}), capDur(it.text)+8000); spoke=true; } }catch(e){}
-      if(my!==capToken) return; if(!spoke) await _sleep(capDur(it.text));
-    } else { await _sleep(capDur(it.text)); }
+    if(url){ const dur=await _audioDur(url); const cap=Math.max(capDur(it.text), dur?dur*1000+600:capDur(it.text)+2500);
+      try{ await _withTimeout(api.voice.play({dataUrl:url}), cap); }
+      catch(e){ try{ if(api.voice.stopPlayback) api.voice.stopPlayback({}); }catch(_){} } }
+    else { await _sleep(capDur(it.text)); }
     if(my!==capToken) return; await _sleep(260);
   }
   if(my===capToken){ el.style.opacity="0"; setTimeout(()=>{ if(my===capToken) setCamCap(""); },340); } }
+/* 读语音实际时长（秒），读不到返回 0 */
+function _audioDur(url){ return new Promise(res=>{ try{ const a=new Audio(); let done=false; const end=v=>{ if(!done){ done=true; res(v); } };
+  a.preload="metadata"; a.onloadedmetadata=()=>end(isFinite(a.duration)?a.duration:0); a.onerror=()=>end(0); setTimeout(()=>end(0),1500); a.src=url; }catch(e){ res(0); } }); }
 /* 解析成三类：{speak:TA的话, other:别人的话, tts:要念的原话} */
 function parseCaptions(t){ if(!t) return []; const raw=String(t).split(/\n+/).map(s=>s.trim()).filter(Boolean); const out=[];
   for(let s of raw){ s=s.replace(/^[-•\d.、)\s]+/,""); if(!s) continue;
