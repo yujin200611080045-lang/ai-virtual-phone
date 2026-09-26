@@ -39,7 +39,7 @@
   .brand .tag{font-size:9px;letter-spacing:4px;color:var(--amber-dim);font-weight:600;flex:0 0 auto}
   .sp{flex:1}
   /* hub */
-  #hub{flex:1;overflow:auto;padding:4px 14px 24px;position:relative;z-index:2}
+  #hub{flex:1;overflow:auto;padding:4px 14px calc(var(--ai-phone-app-safe-bottom,20px) + 110px);position:relative;z-index:2}
   .hubstatus{font-size:12.5px;color:var(--sub);padding:2px 2px 14px;line-height:1.5}
   .hubstatus b{color:var(--amber)}
   .hubstatus .on{color:var(--live)}
@@ -310,12 +310,20 @@
   .who-p:active{background:rgba(70,18,20,.6)}
   .who-p .av{width:34px;height:34px;border-radius:50%;object-fit:cover;background:#2a1414;flex:0 0 auto}
   /* 第一面底部：摄像头按钮 → 家中监控 */
-  .homecam{position:absolute;left:50%;bottom:calc(var(--ai-phone-app-safe-bottom,20px) + 30px);transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:9px;background:transparent;border:0;cursor:pointer;color:var(--sub);font-size:11px;letter-spacing:4px;text-indent:4px;font-family:inherit}
-  .homecam .ring{width:62px;height:62px;border-radius:50%;border:1.5px solid rgba(240,235,225,.55);display:grid;place-items:center;position:relative;box-shadow:0 0 22px rgba(0,0,0,.6)}
+  /* 摄像头圆按钮：第一面底部＝进家中监控；房间页底部＝设置 */
+  .homecam{position:absolute;left:50%;bottom:calc(var(--ai-phone-app-safe-bottom,20px) + 30px);transform:translateX(-50%);display:grid;place-items:center;width:54px;height:54px;padding:0;background:transparent;border:0;cursor:pointer;z-index:5}
+  .homecam .ring{width:54px;height:54px;border-radius:50%;border:1.5px solid rgba(240,235,225,.55);display:grid;place-items:center;position:relative;box-shadow:0 0 22px rgba(0,0,0,.6);background:rgba(10,6,6,.55)}
   .homecam:active .ring{transform:scale(.94)}
-  .homecam svg{width:30px;height:30px;color:rgba(240,235,225,.85)}
-  .homecam .dot{position:absolute;top:13px;right:13px;width:8px;height:8px;border-radius:50%;background:var(--live);box-shadow:0 0 8px var(--live),0 0 16px rgba(212,10,4,.6);animation:blink 1.15s infinite}
-  .iback{position:absolute;top:calc(var(--ai-phone-app-safe-top,44px) + 8px);left:18px;background:transparent;border:0;color:var(--sub);font-size:13px;letter-spacing:2px;cursor:pointer;font-family:inherit;padding:6px 4px}
+  .homecam svg{width:26px;height:26px;color:rgba(240,235,225,.85)}
+  .homecam .dot{position:absolute;top:11px;right:11px;width:7px;height:7px;border-radius:50%;background:var(--live);box-shadow:0 0 8px var(--live),0 0 16px rgba(212,10,4,.6);animation:blink 1.15s infinite}
+  #hubSet{position:fixed}
+  /* 返回键：和右上角胶囊同一行 */
+  .iback{position:absolute;top:var(--ai-phone-app-bar-top,56px);height:var(--ai-phone-app-bar-height,30px);left:var(--ai-phone-app-safe-left,18px);display:flex;align-items:center;background:transparent;border:0;color:var(--sub);font-size:13px;letter-spacing:2px;cursor:pointer;font-family:inherit;padding:0 4px}
+  /* 第一面：搜索框在屏幕正中，标题在它上方 */
+  #iWho .msearch{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:calc(100% - 48px);max-width:320px}
+  #iWho .who-text{position:absolute;left:0;right:0;bottom:calc(50% + 64px);margin:0;text-align:center}
+  /* 第二面：随机进去放在列表外面、下面 */
+  .who-rand{margin-top:2px;cursor:pointer}
   /* lock */
   .lock{position:fixed;inset:0;z-index:50;background:var(--bg);display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px}
   .lock.on{display:flex}
@@ -428,12 +436,13 @@
     <div class="istage red" id="iWho">
       <div class="who-text">今天要来看谁？</div>
       <div class="msearch"><span class="mi"></span><input id="whoQ" placeholder="说出名字，机器替你找" autocomplete="off" enterkeyhint="search"><button id="whoQGo">FIND</button></div>
-      <button class="homecam" id="homeCam"><span class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l12.5-3.4 1.6 5.8L4.6 14.3z"/><path d="M17 8.4l3.4-1v5l-3-.9"/><path d="M8 13.3l1 4.2"/><path d="M5.5 18.5h6"/></svg><span class="dot"></span></span>家中监控</button>
+      <button class="homecam" id="homeCam"><span class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l12.5-3.4 1.6 5.8L4.6 14.3z"/><path d="M17 8.4l3.4-1v5l-3-.9"/><path d="M8 13.3l1 4.2"/><path d="M5.5 18.5h6"/></svg><span class="dot"></span></span></button>
     </div>
     <div class="istage red" id="iHome">
       <button class="iback" id="homeBack">‹ 返回</button>
       <div class="who-text">进谁的家？</div>
       <div class="who-list" id="whoList"></div>
+      <div class="cover-hint who-rand" id="whoRand">随机进去 ›</div>
     </div>
   </div>
 
@@ -453,9 +462,9 @@
 
   <!-- hub -->
   <div id="hub">
-    <div class="msearch"><span class="mi"></span><input id="hubQ" placeholder="告诉机器你要找谁" autocomplete="off" enterkeyhint="search"><button id="hubQGo">FIND</button></div>
     <div class="hubstatus" id="hubStatus"></div>
     <div class="roomgrid" id="roomGrid"></div>
+    <button class="homecam" id="hubSet" title="设置"><span class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l12.5-3.4 1.6 5.8L4.6 14.3z"/><path d="M17 8.4l3.4-1v5l-3-.9"/><path d="M8 13.3l1 4.2"/><path d="M5.5 18.5h6"/></svg><span class="dot"></span></span></button>
   </div>
 
   <!-- room view -->
@@ -1531,7 +1540,10 @@ function startCamClock(){ stopCamClock(); const tm=$("#camTm"); if(!tm) return;
 function stopCamClock(){ if(roomTimer){ clearInterval(roomTimer); roomTimer=null; } }
 function backToHub(){ stopCamClock(); stopCaptions(); curArchive=null; if(curRoom&&curRoom.field) logs=logs.filter(x=>x.roomId!==curRoom.id); curRoom=null; $("#roomView").hidden=true; $("#hub").hidden=false;
   $("#topTitle").textContent=""; $("#topTag").textContent="MONITOR"; renderHub(); }
-$("#brandBtn").onclick=async()=>{ if(!$("#roomView").hidden){ backToHub(); } else { await refreshState(); $("#mSet").classList.add("on"); } };
+let _hubFrom="home"; /* 房间选择页是从哪一面进来的：home＝选人进家，who＝机器搜索 */
+$("#brandBtn").onclick=()=>{ if(!$("#roomView").hidden){ backToHub(); return; }
+  $("#intro").classList.add("on"); if(_hubFrom==="who") gotoWho(); else gotoHome(); };
+$("#hubSet").onclick=async()=>{ await refreshState(); $("#mSet").classList.add("on"); };
 /* 对屋里说话（模拟：打字＝说出口，融进下一次生成） */
 function openTalk(){ $("#talkText").value=""; $("#mTalk").classList.add("on"); setTimeout(()=>{ try{$("#talkText").focus();}catch(e){} },60); }
 $("#talkCancel").onclick=()=>$("#mTalk").classList.remove("on");
@@ -2241,12 +2253,10 @@ async function gotoHome(){
   chars.forEach(ch=>{ const id=ch.id,name=ch.name||ch.title||"角色",av=ch.avatar||ch.avatarUrl||ch.icon||"";
     const el=document.createElement("div"); el.className="who-p";
     el.innerHTML=(av?`<img class="av" src="${esc(av)}">`:`<span class="av"></span>`)+`<span>${esc(name)}</span>`;
-    el.onclick=async()=>{ await switchTarget(id,name,av); endIntro(); };
+    el.onclick=async()=>{ await switchTarget(id,name,av); _hubFrom="home"; endIntro(); };
     list.appendChild(el); });
-  const skip=document.createElement("div"); skip.className="cover-hint"; skip.style.cssText="margin-top:8px;cursor:pointer"; skip.textContent="随机进去 ›";
-  skip.onclick=async()=>{ if(chars.length){ const ch=chars[Math.floor(Math.random()*chars.length)]; const id=ch.id,name=ch.name||ch.title||"角色",av=ch.avatar||ch.avatarUrl||ch.icon||"";
-      await switchTarget(id,name,av); toast("随机监控："+name); } endIntro(); };
-  list.appendChild(skip);
+  $("#whoRand").onclick=async()=>{ if(chars.length){ const ch=chars[Math.floor(Math.random()*chars.length)]; const id=ch.id,name=ch.name||ch.title||"角色",av=ch.avatar||ch.avatarUrl||ch.icon||"";
+      await switchTarget(id,name,av); toast("随机监控："+name); } _hubFrom="home"; endIntro(); };
   stageShow("#iHome");
 }
 $("#homeCam").onclick=()=>gotoHome();
@@ -2325,7 +2335,7 @@ async function machineSearch(q,opts){ opts=opts||{}; q=String(q||"").trim();
   /* 在家、那个房间有机位 → 直接切进家里的监控 */
   if(loc.home){ const room=rooms.find(r=>(r.name||"")===loc.room);
     if(room&&(pickPano(room).pano||(room.images||[]).length)){ await mLine("FEED",camLabel(room)+" · "+(room.name||"房间"),my); if(my!==_machTk) return;
-      machStatus("SUBJECT LOCATED"); await _mSleep(950); if(my!==_machTk) return; machClose(); if(!document.body.classList.contains("entered")) endIntro(); openRoom(room); return; } }
+      machStatus("SUBJECT LOCATED"); await _mSleep(950); if(my!==_machTk) return; machClose(); _hubFrom="who"; endIntro(); openRoom(room); return; } }
   /* 不在家 / 家里那块没机位 → 调最近的摄像头、生成此刻的画面 */
   const camId="CAM "+String(1000+Math.floor(Math.random()*9000));
   const got=mWait("ACQUIRING"); let pano="",ar=1.5;
@@ -2335,10 +2345,8 @@ async function machineSearch(q,opts){ opts=opts||{}; q=String(q||"").trim();
   const f={ charId:id, place, pano, panoAR:ar, panoZoom:zoomForAR(ar), camId, loc, at:Date.now() };
   if(my!==_machTk) return;
   machStatus("SUBJECT LOCATED"); await _mSleep(950); if(my!==_machTk) return;
-  machClose(); if(!document.body.classList.contains("entered")) endIntro(); openRoom(fieldRoom(f)); }
+  machClose(); _hubFrom="who"; endIntro(); openRoom(fieldRoom(f)); }
 $("#machX").onclick=()=>machClose();
-$("#hubQGo").onclick=()=>{ const v=$("#hubQ").value; $("#hubQ").blur(); machineSearch(v); };
-$("#hubQ").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); $("#hubQ").blur(); machineSearch($("#hubQ").value); } });
 $("#whoQGo").onclick=()=>{ const v=$("#whoQ").value; $("#whoQ").blur(); machineSearch(v); };
 $("#whoQ").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); $("#whoQ").blur(); machineSearch($("#whoQ").value); } });
 
