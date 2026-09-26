@@ -499,7 +499,6 @@
       <button class="item" id="sGifts"><span class="ic">◇</span>礼物 / 摆件<span class="sub" id="sGiftsState"></span></button>
       <button class="item" id="sApi"><span class="ic">⚙︎</span>接口配置<span class="sub" id="sApiState">未配置</span></button>
       <button class="item" id="sGen"><span class="ic">✎</span>生成设定<span class="sub" id="sGenState"></span></button>
-      <button class="item" id="sLore"><span class="ic">❋</span>预设 / 世界书<span class="sub" id="sLoreState"></span></button>
       <button class="item" id="sFont"><span class="ic">Aa</span>字体<span class="sub" id="sFontState">默认宋体</span><span class="minibtn" id="sFontReset" style="display:none">恢复默认</span></button>
       <button class="item danger" id="sClear"><span class="ic">✕</span>清除所有数据</button>
     </div>
@@ -527,15 +526,15 @@
   <!-- api -->
   <div class="mask" id="mApi"><div class="sheet" style="max-height:92vh">
     <h2>接口配置</h2>
-    <div class="hint">每个接口可选<b>小手机模型</b>（用你小手机里配好的，不用再填 key）或<b>自填站子</b>。文字大概率能用小手机；生图想用「换光线／加礼物」的母版编辑，请留自填的 gpt-image-1（小手机生图不支持编辑）。</div>
+    <div class="hint">文字固定走<b>小手机模型</b>（人设／世界书／预设／记忆都由小手机自动带上）。生图可选小手机或自填站子；想用「换光线／加礼物」的改图，生图要用自填（小手机生图不支持编辑）。</div>
     <button class="btn" id="pullHost" style="height:36px;margin-bottom:12px">从小手机拉取可用模型</button>
     <div class="apisec">
       <div class="apihd">① 文字接口 · 写监控长文</div>
-      <div class="seg" id="cSrcSeg" style="margin-bottom:10px"><button data-s="host">小手机模型</button><button data-s="self" class="on">自填站子</button></div>
+      <div class="seg" id="cSrcSeg" style="display:none"><button data-s="host" class="on">小手机模型</button></div>
       <div class="field" id="cHostWrap"><label>选一个小手机模型（留空＝小手机当前默认）</label>
         <select id="cHostSel"><option value="">— 小手机当前默认 —</option></select>
         <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;color:var(--ink)"><input type="checkbox" id="cHostChar" style="width:auto"> 跟随房间角色的接口／预设／世界书（小手机按角色分接口时勾上）</label></div>
-      <div id="cManual">
+      <div id="cManual" style="display:none!important">
         <div class="field"><label>Base URL</label><input id="cBase" placeholder="https://api.deepseek.com"></div>
         <div class="field"><label>API Key</label><input id="cKey" type="password" placeholder="sk-..."></div>
         <div class="field"><label>模型名 <button type="button" id="cFetch" class="minibtn">拉取模型列表</button></label>
@@ -551,8 +550,8 @@
         <select id="iHostSel"><option value="">— 小手机当前默认 —</option></select>
         <div class="hint" style="margin-top:6px">注意：小手机生图不支持「编辑」，换光线/加礼物那套需要自填的 gpt-image-1。</div></div>
       <div id="iManual">
-        <div class="field"><label>Base URL</label><input id="iBase" placeholder="留空＝用上面同一个站子"></div>
-        <div class="field"><label>API Key</label><input id="iKey" type="password" placeholder="留空＝用上面的 Key"></div>
+        <div class="field"><label>Base URL</label><input id="iBase" placeholder="https://…"></div>
+        <div class="field"><label>API Key</label><input id="iKey" type="password" placeholder="sk-..."></div>
         <div class="field"><label>生图模型名</label><input id="iModel" placeholder="如 gpt-image-1 / dall-e-3"></div>
         <div class="field"><label>尺寸</label><input id="iSize" placeholder="1024x1024"></div>
       </div>
@@ -751,6 +750,7 @@ let customTypes=[];
 let _cfg,_cfgId;
 async function getCfg(){ if(_cfg!==undefined) return _cfg;
   try{ const l=await api.db.list("config",{limit:1}); const r=(l?.items||l||[])[0]; _cfgId=r&&r.id; _cfg=r?(r.data||r):{}; }catch(e){ _cfg={}; }
+  _cfg.txtSrc="host"; /* 文字固定走小手机 */
   return _cfg; }
 async function saveCfg(patch){ const cur=await getCfg(); const data={...cur,...patch};
   if(_cfgId) await api.db.update("config",_cfgId,data); else{ const c=await api.db.create("config",data); _cfgId=c&&c.id; } _cfg=data; return data; }
@@ -2042,13 +2042,13 @@ async function refreshState(){ const c=await getCfg();
   $("#sGiftsState").textContent=gifts.length?(gifts.length+" 样"):"";
   $("#sGenState").textContent=(c.genView==="自述"?"TA自述":"监控")+" · "+(parseInt(c.genLen,10)||1000)+"字"+(String(c.tzOffset||"").trim()?(" · UTC"+(parseFloat(c.tzOffset)>=0?"+":"")+c.tzOffset):"");
   { const hw=(c.useHostWorld!==false)?(hostWB.length||0):0; const ownN=(Array.isArray(c.worldbook)?c.worldbook.length:0);
-    $("#sLoreState").textContent=[(c.preset&&String(c.preset).trim())?"预设":"",(ownN+hw)?("世界书"+(ownN+hw)+"条"):""].filter(Boolean).join(" · "); }
+    if($("#sLoreState")) $("#sLoreState").textContent=[(c.preset&&String(c.preset).trim())?"预设":"",(ownN+hw)?("世界书"+(ownN+hw)+"条"):""].filter(Boolean).join(" · "); }
   $("#sFontState").textContent=c.fontName?(c.fontName.length>10?c.fontName.slice(0,9)+"…":c.fontName):"默认宋体"; $("#sFontReset").style.display=c.fontName?"":"none"; }
 $("#setClose").onclick=()=>$("#mSet").classList.remove("on");
 
 let _hostModels=[];
 function applySrcUI(){ const t=(document.querySelector("#cSrcSeg button.on")||{}).dataset; const ts=t&&t.s||"self";
-  $("#cHostWrap").style.display=ts==="host"?"":"none"; $("#cManual").style.display=ts==="host"?"none":"";
+  $("#cHostWrap").style.display="";
   const i=(document.querySelector("#iSrcSeg button.on")||{}).dataset; const is=i&&i.s||"self";
   $("#iHostWrap").style.display=is==="host"?"":"none"; $("#iManual").style.display=is==="host"?"none":""; }
 function setSrc(seg,val){ document.querySelectorAll("#"+seg+" button").forEach(b=>b.classList.toggle("on",b.dataset.s===val)); }
@@ -2057,7 +2057,7 @@ function fillHostSelects(){ [["#cHostSel"],["#iHostSel"]].forEach(([id])=>{ cons
   _hostModels.forEach(m=>{ const o=document.createElement("option"); o.value=m.id; o.textContent=m.label+(m.type&&/image|draw|vision/.test(m.type)?"（图）":""); sel.appendChild(o); }); sel.value=cur; }); }
 function openApi(){ getCfg().then(c=>{ $("#cBase").value=c.base||""; $("#cKey").value=c.key||""; $("#cModel").value=c.model||""; $("#cModelSel").style.display="none";
   $("#iBase").value=c.imgBase||""; $("#iKey").value=c.imgKey||""; $("#iModel").value=c.imgModel||""; $("#iSize").value=c.imgSize||"";
-  setSrc("cSrcSeg",c.txtSrc==="host"?"host":"self"); setSrc("iSrcSeg",c.imgSrc==="host"?"host":"self");
+  setSrc("cSrcSeg","host"); setSrc("iSrcSeg",c.imgSrc==="host"?"host":"self");
   fillHostSelects(); $("#cHostSel").value=c.hostTxtModel||""; $("#iHostSel").value=c.hostImgModel||""; $("#cHostChar").checked=(c.hostUseChar!==false); applySrcUI();
   $("#cInfo").textContent=""; $("#mSet").classList.remove("on"); $("#mApi").classList.add("on"); }); }
 $("#sApi").onclick=openApi;
@@ -2132,7 +2132,7 @@ function renderLoreList(){ const box=$("#loreList"); if(!box) return; box.innerH
     row.appendChild(wbToggle(e)); const nm=document.createElement("div"); nm.className="nm"; nm.textContent=wbName(e); row.appendChild(nm);
     const rm=document.createElement("button"); rm.className="rm"; rm.textContent="✕"; rm.onclick=()=>{ loreEntries.splice(i,1); renderLoreList(); }; row.appendChild(rm);
     box.appendChild(row); }); }
-$("#sLore").onclick=openLore;
+if($("#sLore")) $("#sLore").onclick=openLore;
 $("#loreCancel").onclick=()=>$("#mLore").classList.remove("on");
 /* 预设：文件导入（JSON 预设自动提取提示词） */
 function presetFromText(text){ let j; try{ j=JSON.parse(text); }catch(e){ return text; }
