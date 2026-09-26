@@ -482,7 +482,7 @@
       <button class="genbtn" id="genBtn">● 生成这一刻</button>
       <div class="genhint" id="genHint"></div>
     </div>
-    <div class="roomlogs"><div class="loghd"><span>监控记录</span><span class="logbtns"><button class="memseed" id="searchBtn">搜索</button><button class="memseed" id="memSeed">⟲ 翻一翻更多</button></span></div>
+    <div class="roomlogs"><div class="loghd"><span>监控记录</span><span class="logbtns"><button class="memseed" id="searchBtn">搜索</button></span></div>
       <div id="roomLogs"></div></div>
   </div>
 
@@ -495,16 +495,12 @@
   <div class="mask" id="mSet"><div class="sheet">
     <h2>设置</h2>
     <div class="menu">
-      <button class="item" id="sBind"><span class="ic">◉</span>监控对象<span class="sub" id="sBindState">未绑定</span></button>
       <button class="item" id="sRooms"><span class="ic">▦</span>TA 的房间<span class="sub" id="sRoomsState"></span></button>
       <button class="item" id="sGifts"><span class="ic">◇</span>礼物 / 摆件<span class="sub" id="sGiftsState"></span></button>
       <button class="item" id="sApi"><span class="ic">⚙︎</span>接口配置<span class="sub" id="sApiState">未配置</span></button>
       <button class="item" id="sGen"><span class="ic">✎</span>生成设定<span class="sub" id="sGenState"></span></button>
       <button class="item" id="sLore"><span class="ic">❋</span>预设 / 世界书<span class="sub" id="sLoreState"></span></button>
-      <button class="item" id="sFont"><span class="ic">Aa</span>导入复古字体<span class="sub" id="sFontState">默认宋体</span></button>
-      <button class="item" id="sFontReset"><span class="ic">↺</span>恢复默认字体</button>
-      <button class="item" id="sPush"><span class="ic">◔</span>推送计划<span class="sub">快捷指令离线推</span></button>
-      <button class="item" id="sLock"><span class="ic">⚿</span>进入口令<span class="sub" id="sLockState">未设置</span></button>
+      <button class="item" id="sFont"><span class="ic">Aa</span>字体<span class="sub" id="sFontState">默认宋体</span><span class="minibtn" id="sFontReset" style="display:none">恢复默认</span></button>
       <button class="item danger" id="sClear"><span class="ic">✕</span>清除所有数据</button>
     </div>
     <div class="acts"><button class="btn" id="setClose">关闭</button></div>
@@ -719,9 +715,9 @@
   <!-- 搜索 · 自定义生成 -->
   <div class="mask" id="mSearch"><div class="sheet">
     <h2>搜索</h2>
-    <div class="hint">输入你想看 TA 在家做的事——按 TA 的人设生成，不 OOC。</div>
+    <div class="hint">输入你想看 TA 之前做过的事——按 TA 的人设生成，不 OOC。不知道看什么，就点「随便翻翻」，一次翻出几段。</div>
     <div class="field"><input id="searchInput" placeholder="洗澡 · 做饭 · 喂狗 · 和朋友嗨…"></div>
-    <div class="acts"><button class="btn" id="searchCancel">取消</button><button class="btn primary" id="searchGo">生成</button></div>
+    <div class="acts"><button class="btn" id="searchCancel">取消</button><button class="btn" id="memSeed">随便翻翻</button><button class="btn primary" id="searchGo">生成</button></div>
   </div></div>
 
   <!-- talk (对屋里说话) -->
@@ -1079,10 +1075,10 @@ async function computeLocation(cfg, force){ if(!cfg||!cfg.charId) return null;
   if(!force && charLocation) return charLocation; /* 本次会话已推过就复用 */
   const now=charNow(); const hh=String(now.getHours()).padStart(2,"0"),mm=String(now.getMinutes()).padStart(2,"0");
   const names=(rooms||[]).map(r=>r.name||"房间").filter(Boolean);
-  const q=`现在是 ${hh}:${mm}。家里的房间有：${names.join("、")||"（暂无）"}。\nTA 的作息：${cfg.routine||"（没写，就按一个普通人的常规作息合理推测）"}\n结合作息、人设和现在的时间，判断此刻 TA 在哪里、在做什么（可以是做饭/睡觉/打游戏/看书/emo/洗澡/朋友来家里/开派对… 依 TA 而定）。只输出一行 JSON，别的都不要：{"home":true或false,"room":"房间名(从上面列表里选最贴合的一个，不在家就留空)","activity":"在做什么，八个字以内","place":"具体在哪（不在家时写具体地点，如 公司工位/某咖啡馆/健身房/地铁上/朋友家/酒吧；在家就写 家）","with":"和谁在一起（独自就写 独自）","look":"TA 此刻的外形和穿着（发型、身材、衣着），25字以内，按人设写","shot":"监控画面里看得到的 TA 的姿态动作（不露骨），15字以内","scene":"这个地方此刻的环境（空间、光线、周围的人），40字以内，不写露骨内容","cam":"最可能拍到 TA 的那台摄像头（如 街角监控/店内吊顶监控/地铁车厢监控/电梯监控/公司走廊监控/家中监控），10字以内"}`;
+  const q=`现在是 ${hh}:${mm}。家里的房间有：${names.join("、")||"（暂无）"}。\nTA 的作息：以 TA 人设里写的作息为准（人设里没写，就按一个普通人的常规作息合理推测）\n结合作息、人设和现在的时间，判断此刻 TA 在哪里、在做什么（可以是做饭/睡觉/打游戏/看书/emo/洗澡/朋友来家里/开派对… 依 TA 而定）。只输出一行 JSON，别的都不要：{"home":true或false,"room":"房间名(从上面列表里选最贴合的一个，不在家就留空)","activity":"在做什么，八个字以内","place":"具体在哪（不在家时写具体地点，如 公司工位/某咖啡馆/健身房/地铁上/朋友家/酒吧；在家就写 家）","with":"和谁在一起（独自就写 独自）","look":"TA 此刻的外形和穿着（发型、身材、衣着），25字以内，按人设写","shot":"监控画面里看得到的 TA 的姿态动作（不露骨），15字以内","scene":"这个地方此刻的环境（空间、光线、周围的人），40字以内，不写露骨内容","cam":"最可能拍到 TA 的那台摄像头（如 街角监控/店内吊顶监控/地铁车厢监控/电梯监控/公司走廊监控/家中监控），10字以内"}`;
   let out=""; try{
     if(hostGenReady(cfg)) out=await hostGenerate(cfg.charId, q);
-    else out=await directLLM(cfg,[{role:"system",content:"你是个只输出一行 JSON 的判断器，不解释、不寒暄。"},{role:"user",content:q}]);
+    else { let dt=""; try{ dt=dossierText(await dossier(cfg.charId)); }catch(e){} out=await directLLM(cfg,[{role:"system",content:"你是个只输出一行 JSON 的判断器，不解释、不寒暄。"},{role:"user",content:(dt?dt+"\n\n":"")+q}]); }
   }catch(e){}
   let loc=null; try{ const m=String(out).match(/\{[\s\S]*?\}/); if(m) loc=JSON.parse(m[0]); }catch(e){}
   if(!loc||typeof loc!=="object") loc={home:true, room:names[0]||"", activity:""};
@@ -1142,7 +1138,7 @@ function renderHub(){
     ? (cName ? `此刻监控 <span class="on">● ${esc(cName)}</span> · 点开任意房间，看 TA 这一刻`
              : `点开任意房间，看 TA 这一刻。<span class="link" id="hubBind">先选一个监控对象 ›</span>`)
     : `还没有房间。到「设置 › TA 的房间」加一个，给它放几张广角图。`;
-  const hb=$("#hubBind"); if(hb) hb.onclick=openBind;
+  const hb=$("#hubBind"); if(hb) hb.onclick=()=>{ $("#intro").classList.add("on"); gotoHome(); };
   const g=$("#roomGrid"); g.innerHTML="";
   rooms.forEach((r,i)=>{
     const tile=document.createElement("div"); tile.className="rtile";
@@ -1556,7 +1552,7 @@ const REPLY_SYS=[
 "只依据给出的资料写 TA 的身份/性格/与她的关系，资料没有的既定事实别编造（身体、动作、感官可尽情想象）。",
 "直接输出 TA 的回应正文（可含 TA 说出口的话和动作神态），不要旁白解说、不要括号说明。中文，别太短，也别硬拉长。"].join("\n");
 async function sendTalk(text){ const cfg=await getCfg();
-  if(!cfg.charId){ toast("先在设置里选监控对象"); openBind(); return; }
+  if(!cfg.charId){ toast("先选一个人"); $("#intro").classList.add("on"); gotoHome(); return; }
   if(!txtReady(cfg)){ toast("先配你自己的宽松站子"); openApi(); return; }
   if(!curRoom) return;
   const holder=document.createElement("div"); holder.className="rec-card"; holder.innerHTML=`<div class="streaming">TA 听到了你的声音…</div>`; $("#roomLogs").prepend(holder);
@@ -1566,10 +1562,10 @@ async function sendTalk(text){ const cfg=await getCfg();
     : `【场景】TA 此刻就在「${_rn}」里。`;
   try{ let reply;
     if(hostGenReady(cfg)){ /* 走 ai.generate：小手机自动带上该角色人设/记忆/世界书/预设 */
-      const instr=[REPLY_SYS, "", talkScene, `【用户透过监控对讲对 TA 说】"${text}"`, cfg.routine?("【TA 的作息参考】\n"+cfg.routine):"", "写 TA 听到这句话后的即时回应，只输出正文。"].filter(Boolean).join("\n");
+      const instr=[REPLY_SYS, "", talkScene, `【用户透过监控对讲对 TA 说】"${text}"`, "", "写 TA 听到这句话后的即时回应，只输出正文。"].filter(Boolean).join("\n");
       reply=(await hostGenerate(cfg.charId, instr)).trim();
     } else { const d=await dossier(cfg.charId);
-      let userMsg=[ dossierText(d), "", cfg.routine?("【TA 的作息参考】"+cfg.routine):"", talkScene, `【用户透过监控对讲对 TA 说】"${text}"`, "写 TA 听到这句话后的即时回应。" ].filter(Boolean).join("\n");
+      let userMsg=[ dossierText(d), "", "", talkScene, `【用户透过监控对讲对 TA 说】"${text}"`, "写 TA 听到这句话后的即时回应。" ].filter(Boolean).join("\n");
       const wb=worldbookInject(dossierText(d)+" "+curRoom.name+" "+text+" "+(d.note||""));
       reply=(await directLLM(cfg, buildMsgs(cfg, REPLY_SYS, wb, userMsg))).trim(); }
     holder.remove();
@@ -1607,7 +1603,7 @@ $("#tyInput").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefa
 /* ---------- 生成 ---------- */
 async function generate(){
   const cfg=await getCfg();
-  if(!cfg.charId){ toast("先在设置里选监控对象"); openBind(); return; }
+  if(!cfg.charId){ toast("先选一个人"); $("#intro").classList.add("on"); gotoHome(); return; }
   if(!txtReady(cfg)){ toast("先配你自己的宽松站子"); openApi(); return; }
   if(!curRoom){ return; }
   const btn=$("#genBtn"); btn.disabled=true; btn.textContent="● 监控中…";
@@ -1625,10 +1621,10 @@ async function generate(){
       : `${focusLine(cfg)}\n如果此刻氛围合适（TA 确实独自在家、在这个房间），想写的私密方向是「${gType}」——${typeLine(gType)}但这只是"合适时才写"的方向；若按作息此刻 TA 不在家、或在做别的事，就如实写那个真实的此刻（空房间 / 日常），绝不为了凑「${gType}」而硬编 TA 在场或在自慰。写得连贯完整。`;
     let text;
     if(hostGenReady(cfg)){ /* 走 ai.generate：自动带角色人设/记忆/世界书/预设 */
-      const instr=[SYS, "", scene, flow, VIEW_LINE[view], styleRef(cfg,view), `正文至少 ${wlen} 字，只能多不能少、绝不许短于这个数（内容要展开、写足写透）。`, cfg.routine?("【TA 的作息参考】\n"+cfg.routine):"", "先输出一行「标题：<八字内短标题>」，换行后写正文本身，别的都不要。"].filter(Boolean).join("\n");
+      const instr=[SYS, "", scene, flow, VIEW_LINE[view], styleRef(cfg,view), `正文至少 ${wlen} 字，只能多不能少、绝不许短于这个数（内容要展开、写足写透）。`, "", "先输出一行「标题：<八字内短标题>」，换行后写正文本身，别的都不要。"].filter(Boolean).join("\n");
       text=(await hostGenerate(cfg.charId, instr)).trim();
     } else { const d=await dossier(cfg.charId);
-      let userMsg=[ dossierText(d), "", cfg.routine?("【TA 的作息参考】"+cfg.routine):"", scene, flow, VIEW_LINE[view], styleRef(cfg,view), `正文至少 ${wlen} 字，只能多不能少、绝不许短于这个数（内容要展开、写足写透）。`, "先输出一行「标题：<八字内短标题>」，换行后写正文。" ].filter(Boolean).join("\n");
+      let userMsg=[ dossierText(d), "", "", scene, flow, VIEW_LINE[view], styleRef(cfg,view), `正文至少 ${wlen} 字，只能多不能少、绝不许短于这个数（内容要展开、写足写透）。`, "先输出一行「标题：<八字内短标题>」，换行后写正文。" ].filter(Boolean).join("\n");
       const wb=worldbookInject(dossierText(d)+" "+curRoom.name+" "+(d.note||""));
       text=(await directLLM(cfg, buildMsgs(cfg, SYS, wb, userMsg))).trim(); }
     holder.remove();
@@ -1641,7 +1637,7 @@ async function generate(){
 }
 $("#genBtn").onclick=generate;
 $("#rvLoc").onclick=async()=>{ const c=await getCfg(); if(curRoom&&curRoom.field&&c.charId){ machineSearch(c.charName||"",{force:true,charId:c.charId}); return; } if(c.charId){ charLocation=null; refreshRvLoc(); toast("重新按作息定位…"); } };
-$("#memSeed").onclick=batchGenerate;
+$("#memSeed").onclick=()=>{ $("#mSearch").classList.remove("on"); batchGenerate(); };
 $("#searchBtn").onclick=()=>{ $("#searchInput").value=""; $("#mSearch").classList.add("on"); setTimeout(()=>{ try{$("#searchInput").focus();}catch(e){} },60); };
 $("#searchCancel").onclick=()=>$("#mSearch").classList.remove("on");
 $("#mSearch").addEventListener("click",e=>{ if(e.target===$("#mSearch")) $("#mSearch").classList.remove("on"); });
@@ -1688,7 +1684,7 @@ function parseCaptions(t){ if(!t) return []; const raw=String(t).split(/\n+/).ma
 const SUB_SYS="你在为一段“居家监控”做实时收音字幕。这不只是情色场景——先根据【此刻时间、这个房间、TA 的人设与作息】判断 TA 现在是否在家、最可能在做什么（睡觉/洗澡/看电视/打游戏/做饭/发呆/自慰/朋友来家里喝酒…），再写出这个房间此刻真实能听到的声音。铁律：绝不违背作息——若按作息此刻 TA 根本不在家，就只写这个空房间穿墙而来的微弱环境音（远处车流、楼道、家电待机的嗡响…），绝不出现 TA 的话或 TA 弄出的声音。声音有远近：TA 正待的那个房间声音最清楚；别的房间只能听到穿墙而来的微弱声响。没有人说话时就只有环境音，不要硬造对话。成人向可露骨，但也只通过话语和拟声暗示，不做旁白解说。\n每行必须以标签开头，只有这三种：\n[话] TA 自己说的话/自言自语/气音——写「原话」；若 TA 说的是外语，「」里写外语原话，后面紧跟（中文翻译）。\n[客] 别人说的话（朋友、电话那头…，只有房里/线上真有别人时才出现）——写 名字「原话」，外语同样加（中文翻译）。\n[音] 纯声响——只用拟声词还原声音本身，用 *拟声* 包住，绝不点破是什么（不许出现“水/电视/呼吸/脚步”等名词，也不许“…的声音/…地响/传来…”这类解说），让人自己联想。";
 const SUB_FMT="输出 8-14 行，顺序自然、有节奏和留白。每行只一句、必须以 [话]/[客]/[音] 之一开头。示例只示范格式、不要照抄内容：\n[音] *嗡……* 隐隐的\n[话]「……困死了……」\n[音] *窸窣*\n[客] 阿哲「到你了，快点」\n[话]「Wait…」（等一下…）\n只要这三类，不要编号、不要旁白、不要解释声音来源。";
 async function genSubtitles(){ const cfg=await getCfg();
-  if(!cfg.charId){ toast("先在设置里选监控对象"); openBind(); return; }
+  if(!cfg.charId){ toast("先选一个人"); $("#intro").classList.add("on"); gotoHome(); return; }
   if(!hostGenReady(cfg) && !txtReady(cfg)){ toast("先配你自己的宽松站子"); openApi(); return; }
   if(!curRoom) return;
   const mic=$("#rvMic"); if(mic){ mic.classList.add("busy"); mic.style.pointerEvents="none"; } stopCaptions(); setCamCap("● 收音中…");
@@ -1697,10 +1693,10 @@ async function genSubtitles(){ const cfg=await getCfg();
     const scene=locScene(loc, curRoom.name||"房间", hh, mm)+"\n"+focusLine(cfg)+"\n现在写这个房间此刻能听到的收音字幕。";
     let out;
     if(hostGenReady(cfg)){
-      const instr=[SUB_SYS,"",scene, cfg.charNote?("【我补充的设定】\n"+cfg.charNote):"", cfg.routine?("【TA 的作息参考】\n"+cfg.routine):"", SUB_FMT].filter(Boolean).join("\n");
+      const instr=[SUB_SYS,"",scene, cfg.charNote?("【我补充的设定】\n"+cfg.charNote):"", "", SUB_FMT].filter(Boolean).join("\n");
       out=await hostGenerate(cfg.charId, instr);
     } else { const d=await dossier(cfg.charId);
-      let userMsg=[ dossierText(d), "", cfg.routine?("【TA 的作息参考】"+cfg.routine):"", scene, SUB_FMT ].filter(Boolean).join("\n");
+      let userMsg=[ dossierText(d), "", "", scene, SUB_FMT ].filter(Boolean).join("\n");
       const wb=worldbookInject(dossierText(d)+" "+curRoom.name);
       out=await directLLM(cfg, buildMsgs(cfg, SUB_SYS, wb, userMsg));
     }
@@ -1714,7 +1710,7 @@ async function genSubtitles(){ const cfg=await getCfg();
 let collapsedYears=new Set();
 function slimDate(ts){ const d=new Date(ts||Date.now()); return { md:`${d.getMonth()+1}月${d.getDate()}日`, hm:`${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`, y:d.getFullYear() }; }
 function renderRoomLogs(){ const box=$("#roomLogs"); box.innerHTML=""; const all=roomLogsOf(curRoom.id).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-  if(!all.length){ box.innerHTML=`<div class="empty">这个房间还没有监控记录。<br>点「生成这一刻」看此刻，或「⟲ 翻一翻更多」直接生成几段家里的片段。</div>`; return; }
+  if(!all.length){ box.innerHTML=`<div class="empty">这个房间还没有监控记录。<br>点「生成这一刻」看此刻，或点「搜索」翻出 TA 之前的片段。</div>`; return; }
   const shown=all.slice(0, logShown); let lastY=null;
   shown.forEach(r=>{ const y=new Date(r.createdAt||Date.now()).getFullYear();
     if(y!==lastY){ lastY=y; box.appendChild(yearHead(y, all.filter(x=>new Date(x.createdAt||0).getFullYear()===y).length)); }
@@ -1749,9 +1745,9 @@ function parseRecords(t){ const blocks=String(t).split(/\n*@@@+\n*/).map(s=>s.tr
   for(const b of blocks){ const p=parseBlock(b); if(p.body) out.push({title:p.title||"监控片段", time:p.time, text:p.body}); } return out.slice(0,3); }
 /* 翻一翻更多：一次直接生成 2-3 条带标题的监控记录，不再二次生成 */
 async function batchGenerate(){ const cfg=await getCfg();
-  if(!cfg.charId){ toast("先选监控对象"); openBind(); return; }
+  if(!cfg.charId){ toast("先选一个人"); $("#intro").classList.add("on"); gotoHome(); return; }
   if(!hostGenReady(cfg) && !txtReady(cfg)){ toast("先配你自己的宽松站子"); openApi(); return; }
-  const btn=$("#memSeed"); const old=btn?btn.textContent:""; if(btn){ btn.disabled=true; btn.textContent="生成中…"; }
+  const btn=$("#searchBtn"); const old=btn?btn.textContent:""; if(btn){ btn.disabled=true; btn.textContent="翻找中…"; }
   try{ const ch=cfg.charId; let mem="";
     try{ const c=await api.memory.readCore({characterId:ch}); mem+="\n"+memText(c); }catch(e){}
     try{ const l=await api.memory.readLongTerm({characterId:ch}); mem+="\n"+memText(l); }catch(e){}
@@ -1760,8 +1756,8 @@ async function batchGenerate(){ const cfg=await getCfg();
     const view=(cfg.genView==="自述")?"自述":"监控"; const wlen=Math.min(parseInt(cfg.genLen,10)||1000, 700);
     const ask=`一次生成 3 条“监控记录”，都发生在【这个家里／「${curRoom.name||"房间"}」】、是此前不同时刻的片段（依 TA 的作息与人设合理设想，彼此别雷同，日常或私密都可以）。每条之间用单独一行 @@@ 分隔。每条格式：第一行「标题：<八字内短标题>」，第二行「时间：HH:MM」（要和这条内容的时间段一致，比如深夜就 23:xx、午睡就 14:xx），再换行写正文。${VIEW_LINE[view]} ${styleRef(cfg,view)}\n${focusLine(cfg)}\n每条正文至少 ${wlen} 字，只能多不能少、绝不许短。${mem?("\n可参考 TA 的记忆：\n"+mem):""}`;
     let out;
-    if(hostGenReady(cfg)) out=await hostGenerate(ch,[SYS,"",cfg.routine?("【TA 的作息参考】\n"+cfg.routine):"",ask].filter(Boolean).join("\n"));
-    else { const d=await dossier(cfg.charId); let um=[dossierText(d),"",cfg.routine?("【TA 的作息参考】"+cfg.routine):"",ask].filter(Boolean).join("\n"); const wb=worldbookInject(dossierText(d)+" "+curRoom.name); out=await directLLM(cfg, buildMsgs(cfg, SYS, wb, um)); }
+    if(hostGenReady(cfg)) out=await hostGenerate(ch,[SYS,"","",ask].filter(Boolean).join("\n"));
+    else { const d=await dossier(cfg.charId); let um=[dossierText(d),"","",ask].filter(Boolean).join("\n"); const wb=worldbookInject(dossierText(d)+" "+curRoom.name); out=await directLLM(cfg, buildMsgs(cfg, SYS, wb, um)); }
     const recs=parseRecords(out);
     if(!recs.length){ toast("没生成出来，换个站子/模型"); }
     else { let n=0; for(const e of recs){ const rec={ roomId:curRoom.id, type:"回放", title:e.title, text:e.text, view, talk:"", fav:false, createdAt:pastDate(e.time, n) };
@@ -1771,13 +1767,13 @@ async function batchGenerate(){ const cfg=await getCfg();
   if(btn){ btn.disabled=false; btn.textContent=old; } }
 /* 搜索框＝自定义生成：按人设生成 TA 在家做某件事，不 OOC */
 async function customGenerate(query){ query=String(query||"").trim(); if(!query) return; const cfg=await getCfg();
-  if(!cfg.charId){ toast("先选监控对象"); openBind(); return; }
+  if(!cfg.charId){ toast("先选一个人"); $("#intro").classList.add("on"); gotoHome(); return; }
   if(!hasStation(cfg)){ toast("搜索只走自填站子——请先在接口配置里把自填的 base / key / 模型 三样填全"); openApi(); return; }
   const go=$("#searchGo"); const old=go?go.textContent:""; if(go){ go.disabled=true; go.textContent="生成中…"; }
   try{ const view=(cfg.genView==="自述")?"自述":"监控"; const wlen=Math.min(parseInt(cfg.genLen,10)||1000, 800);
     const centricNote = (cfg.userCentric!==false) ? "若场景里有别人（朋友等），话题可以自然带到 user 身上，能听到 TA 私下对 user 的态度。" : "不用围绕 user，就写 TA 自己这件事。";
     const ask=`【本次是创作任务，不是对话】直接输出一段“过去发生过的监控回放”正文，绝不能回复“新窗口没有上下文 / 你想继续什么 / 请提供更多信息”之类——你有 TA 的完整人设，凭它创作即可。\n内容核心＝【${query}】：必须真的围绕这件事本身写，绝不跑去写别的活动；贴人设、绝不 OOC，不完全符合 TA 就演绎成“最像 TA 的版本”，但不许违背人设。${centricNote}\n【当作与今天无关的往事】不要引用今天/最近发生的事、不要提最近的聊天、不要用“此刻/实时状态/TA 现在在做什么”这类信息——就当一段独立的过去片段自由创作。\n先输出「标题：<八字内短标题>」，第二行「时间：HH:MM」（和内容时间段吻合：深夜派对 22:xx、中午做饭 12:xx…），再换行写正文。${VIEW_LINE[view]} ${styleRef(cfg,view)}\n正文至少 ${wlen} 字，只能多不能少、绝不许短。`;
-    const d=await dossier(cfg.charId, null, {dropToday:true}); const um=[dossierText(d),"",cfg.routine?("【TA 的作息参考】"+cfg.routine):"",ask].filter(Boolean).join("\n");
+    const d=await dossier(cfg.charId, null, {dropToday:true}); const um=[dossierText(d),"","",ask].filter(Boolean).join("\n");
     const wb=worldbookInject(dossierText(d)+" "+curRoom.name+" "+query); const msgs=buildMsgs(cfg, SYS, wb, um);
     const out=await _directLLM(cfg, msgs); /* 搜索只走自填，不回退小手机——保证不带当天记忆 */
     const p=parseBlock(String(out||"").trim()); const title=p.title, body=p.body;
@@ -2042,14 +2038,12 @@ $("#giftScan").onclick=async()=>{ const b=$("#giftScan"); const o=b.textContent;
 /* ---------- settings ---------- */
 async function refreshState(){ const c=await getCfg();
   $("#sApiState").textContent=(txtReady(c)&&imgReady(c))?"已配置":"未配置";
-  $("#sBindState").textContent=c.charName||"未绑定";
   $("#sRoomsState").textContent=rooms.length?(rooms.length+" 个"):"未添加";
   $("#sGiftsState").textContent=gifts.length?(gifts.length+" 样"):"";
   $("#sGenState").textContent=(c.genView==="自述"?"TA自述":"监控")+" · "+(parseInt(c.genLen,10)||1000)+"字"+(String(c.tzOffset||"").trim()?(" · UTC"+(parseFloat(c.tzOffset)>=0?"+":"")+c.tzOffset):"");
   { const hw=(c.useHostWorld!==false)?(hostWB.length||0):0; const ownN=(Array.isArray(c.worldbook)?c.worldbook.length:0);
     $("#sLoreState").textContent=[(c.preset&&String(c.preset).trim())?"预设":"",(ownN+hw)?("世界书"+(ownN+hw)+"条"):""].filter(Boolean).join(" · "); }
-  $("#sLockState").textContent=c.pin?"已设置":"未设置";
-  $("#sFontState").textContent=c.fontName?(c.fontName.length>10?c.fontName.slice(0,9)+"…":c.fontName):"默认宋体"; }
+  $("#sFontState").textContent=c.fontName?(c.fontName.length>10?c.fontName.slice(0,9)+"…":c.fontName):"默认宋体"; $("#sFontReset").style.display=c.fontName?"":"none"; }
 $("#setClose").onclick=()=>$("#mSet").classList.remove("on");
 
 let _hostModels=[];
@@ -2168,7 +2162,6 @@ async function openBind(){ const c=await getCfg(); let chars=[]; try{ const cs=a
     el.innerHTML=(av?`<img class="av" src="${esc(av)}">`:`<span class="av"></span>`)+`<span>${esc(name)}</span>`+(c.charId===id?'<span class="tick">✓</span>':'');
     el.onclick=()=>{ list.querySelectorAll(".p").forEach(x=>{x.classList.remove("sel");const t=x.querySelector(".tick");if(t)t.remove();}); el.classList.add("sel"); if(!el.querySelector(".tick")){const t=document.createElement("span");t.className="tick";t.textContent="✓";el.appendChild(t);} bindPick={id,name,av}; }; list.appendChild(el); });
   $("#bindRoutine").value=c.routine||""; $("#mSet").classList.remove("on"); $("#mBind").classList.add("on"); }
-$("#sBind").onclick=()=>openBind();
 $("#bindCancel").onclick=()=>$("#mBind").classList.remove("on");
 $("#bindPreview").onclick=async()=>{ const cur=await getCfg(); const id=(bindPick&&bindPick.id)||cur.charId; if(!id){ toast("先选一个角色"); return; }
   $("#rdTitle").textContent="底料预览"; $("#rdBody").textContent="读取中…"; $("#mRead").classList.add("on");
@@ -2187,8 +2180,8 @@ $("#fontInput").onchange=async()=>{ const f=$("#fontInput").files&&$("#fontInput
   try{ const url=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f);});
     await saveCfg({fontData:url,fontName:f.name}); applySerif(url); $("#sFontState").textContent=f.name.length>10?f.name.slice(0,9)+"…":f.name; toast("已用字体："+f.name); $("#mSet").classList.remove("on"); }
   catch(e){ toast("读取失败："+(e&&e.message||e)); } };
-$("#sFontReset").onclick=async()=>{ await saveCfg({fontData:"",fontName:""}); applySerif(null); $("#sFontState").textContent="默认宋体"; toast("已恢复默认字体"); };
-$("#sLock").onclick=async()=>{ const c=await getCfg(); $("#lkPin").value=c.pin||""; $("#mSet").classList.remove("on"); $("#mLock").classList.add("on"); };
+$("#sFontReset").onclick=async(e)=>{ e.stopPropagation(); await saveCfg({fontData:"",fontName:""}); applySerif(null); $("#sFontState").textContent="默认宋体"; $("#sFontReset").style.display="none"; toast("已恢复默认字体"); };
+if($("#sLock")) $("#sLock").onclick=async()=>{ const c=await getCfg(); $("#lkPin").value=c.pin||""; $("#mSet").classList.remove("on"); $("#mLock").classList.add("on"); };
 $("#lkCancel").onclick=()=>$("#mLock").classList.remove("on");
 $("#lkSave").onclick=async()=>{ const v=$("#lkPin").value.replace(/\D/g,"").slice(0,4); await saveCfg({pin:v}); $("#mLock").classList.remove("on"); await refreshState(); toast(v?"已设口令":"已取消口令"); };
 
@@ -2227,7 +2220,7 @@ $("#pushAI").onclick=async()=>{ const cfg=await getCfg(); if(!txtReady(cfg)){ to
     if(Array.isArray(arr)&&arr.length){ arr.forEach((s,i)=>{ if(i<pushTexts.length) pushTexts[i]=String(s); }); renderPushList(); toast("文案已更新"); }
     else toast("没解析到文案"); }
   catch(e){ toast("生成失败："+(e&&e.message||e)); } };
-$("#sPush").onclick=openPush;
+if($("#sPush")) $("#sPush").onclick=openPush;
 
 /* ---------- lock ---------- */
 let pinEntry="";
@@ -2361,7 +2354,7 @@ else{ buildKeypad(); renderPinDots();
     if(c.charId){ /* 开 app 定位：半小时内不重推，超过半小时才重新推演 */
       if(c.locCache && c.locAt && (!c.locCharId||c.locCharId===c.charId) && (Date.now()-c.locAt < LOC_TTL)){ charLocation=c.locCache; if(!$("#hub").hidden) renderHub(); }
       else computeLocation(c, true).then(()=>{ if(!$("#hub").hidden) renderHub(); }).catch(()=>{}); }
-    if(c.pin) $("#lock").classList.add("on"); else startIntro();
+    startIntro(); /* 进入口令已撤掉 */
     autoScanGifts(c); }); }
 /* 每天进 app 静默找一次礼物（只跑文字识别，不自动生图；发现新的就提示，你自己去放） */
 async function autoScanGifts(c){ try{
