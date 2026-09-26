@@ -1276,8 +1276,8 @@ async function capturePoiImg(cam, ox, oy){
       fx=Math.max(0,Math.min(1,clickCSSX/imgCSSW));
       fy=Math.max(0,Math.min(1,clickCSSY/imgCSSH));
     }
-    /* 裁剪：取点击位置周围 18% 区域，聚焦准星目标 */
-    const frac=0.18;
+    /* 裁剪：取点击位置周围 42% 区域——太小会只剩一团后脑勺/椅背，分不清是人还是物；准星圈出目标点 */
+    const frac=0.42;
     const sw=im.width*frac, sh=im.height*frac;
     const sx=Math.max(0,Math.min(im.width-sw, im.width*fx - sw/2));
     const sy=Math.max(0,Math.min(im.height-sh, im.height*fy - sh/2));
@@ -1286,7 +1286,7 @@ async function capturePoiImg(cam, ox, oy){
     const ctx=cv.getContext("2d");
     ctx.drawImage(im,sx,sy,sw,sh,0,0,cv.width,cv.height);
     /* 在裁剪图中心画十字准星，让 AI 明确知道目标点 */
-    const cx=cv.width/2, cy=cv.height/2, arm=Math.min(cv.width,cv.height)*0.08;
+    const cx=cv.width/2, cy=cv.height/2, arm=Math.min(cv.width,cv.height)*0.05;
     ctx.strokeStyle="rgba(255,40,40,0.85)"; ctx.lineWidth=Math.max(2,Math.round(cv.width/200));
     ctx.beginPath(); ctx.moveTo(cx-arm,cy); ctx.lineTo(cx+arm,cy); ctx.moveTo(cx,cy-arm); ctx.lineTo(cx,cy+arm); ctx.stroke();
     ctx.strokeStyle="rgba(255,40,40,0.5)"; ctx.lineWidth=1;
@@ -1395,24 +1395,39 @@ async function poiAnalyze(ox,oy){
   const posDesc=`画面${oy<33?"上部":oy>66?"下部":"中部"}${ox<33?"左侧":ox>66?"右侧":"中央"}`;
   const cn=cfg.charName||"?";
   const poiSys="你是疑犯追踪里The Machine的终端AI。严格按指定格式输出监控分析，不要输出代码、教程或任何与格式无关的内容。";
-  const visionPrompt=`这是「${curRoom.name||"房间"}」的监控截图局部放大图——图像已裁剪到操作员标记的${posDesc}区域，画面中心就是被锁定目标。CAM:${camLabel(curRoom)} ${hh}:${mm}。监控对象：${cn}（${locInfo}）。
+  const knows=!!(((cfg.perChar||{})[cfg.charId]||{}).talkKnown);
+  const visionPrompt=`这是「${curRoom.name||"房间"}」的监控截图局部（操作员点在${posDesc}）。CAM:${camLabel(curRoom)} ${hh}:${mm}。监控对象：${cn}（${locInfo}）。
 
-图片正中心有一个红色十字准星标记（⊕），那就是锁定目标。识别准星正对着的那一个物体，忽略准星以外的一切。可能是家具、电器、装饰品或人物——直接给出真实名称。
+图片正中心有一个红色十字准星（⊕），准星正对着的就是锁定目标。
 
-严格按此格式输出（只输出这10行，不要多也不要少）：
+第一步·先判断目标是人还是物：
+只要准星落在人的任何部位——头、后脑勺、头发、脸、肩、背、手、胳膊、身体、身上的衣服——哪怕是背影、只露一部分、光线很暗，一律按【人物】分析，不要去分析他坐的椅子、靠的桌子、手边的东西。
+只有准星明确落在没有被人挡住的物体上，才按【物品】分析。
+
+【人物】严格按此格式输出（只输出这9行）：
+${knows?"ASSET":"IRRELEVANT"}
+MODE:PERSONNEL
+NAME:[这个人是谁；此刻在这里的若只有 ${cn}，就是 ${cn}]
+STATUS:[清醒/专注/疲惫/睡着…，看得出来的状态]
+ACTIVITY:[此刻正在做什么，只写画面里看得到的]
+LOCATION:[人在房间/场所里的实际位置，如 工位前/沙发上/窗边；不用画面左右上下这类词]
+MOOD STATE:[从姿态、动作看出来的情绪]
+ANOMALY:[异常，无则写 无]
+ASSESSMENT:[一句话综合评估]
+
+【物品】严格按此格式输出（只输出这10行）：
 IRRELEVANT
 MODE:OBJECT
-OBJECT ID:[准星中心最显眼的单个物体名称，不描述周边物品]
+OBJECT ID:[准星正对着的那一个物体的名称，不描述周边]
 CLASSIFICATION:[物品类别]
 ORIGIN:[来历，结合角色记忆，无记录写 未知]
-LOCATION:[从图像透视推断物品在房间里的实际位置，例：靠北墙/房间角落/窗边/房间中央；严禁使用"画面左/右/中央/上/下"等屏幕方位词]
-CONDITION:[物品当前物理状态，如：完好/使用中/损坏/翻开/关闭；不描述位置]
+LOCATION:[物品在房间里的实际位置，如 靠北墙/房间角落/窗边；不用画面左右上下这类词]
+CONDITION:[物品当前物理状态，如 完好/使用中/翻开/关闭]
 SIGNIFICANCE:[对 ${cn} 的意义]
 ANOMALY:[异常，无则写 无]
 ASSESSMENT:[一句话综合评估]
 
-人物时用MODE:PERSONNEL，字段：NAME/STATUS/ACTIVITY/MOOD STATE/ANOMALY/ASSESSMENT。
-第一行分级（机器的框色）：物品一律 IRRELEVANT；普通人 IRRELEVANT；操作员本人（用户）写 ADMIN；知道自己被监控/知道这套系统存在的人写 ASSET；持械或有暴力威胁的人写 THREAT。
+第一行是机器的分级（决定框的颜色）：物品一律 IRRELEVANT；${cn}${knows?"已经知道自己被监控，写 ASSET":"并不知道自己被监控，写 IRRELEVANT"}；操作员本人（用户）写 ADMIN；别的知道自己被监控的人写 ASSET；持械或有暴力威胁的人写 THREAT；其他普通人写 IRRELEVANT。
 只输出分析结果，不解释。冷峻终端风格。`;
   const textPrompt=`分析「${curRoom.name||"房间"}」。CAM:${camLabel(curRoom)} ${hh}:${mm}。监控对象：${cn}（${locInfo}）。
 操作员锁定了${posDesc}区域。根据房间用途、角色物品和记忆，推测该位置最可能是什么。
