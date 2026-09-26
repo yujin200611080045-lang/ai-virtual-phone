@@ -354,9 +354,6 @@
   .mach-st{margin-top:12px;font-size:10.5px;font-weight:700;letter-spacing:3px;padding:2px 10px;background:var(--pc);color:#000;opacity:0;transition:opacity .25s}
   .mach-st.on{opacity:1}
   .mach-x{position:absolute;bottom:calc(var(--ai-phone-app-safe-bottom,18px) + 16px);left:50%;transform:translateX(-50%);height:34px;padding:0 18px;border:1px solid rgba(255,255,255,.25);border-radius:8px;background:transparent;color:rgba(255,255,255,.7);font-family:inherit;font-size:11px;letter-spacing:3px;cursor:pointer}
-  .rtile.field .rn{color:#f2f2f2}
-  .rtile.field .rn .dot{border-radius:0;background:transparent;border:1.3px dashed rgba(255,255,255,.7)}
-  .rtile.field .thumb img{filter:brightness(.85) contrast(1.05) saturate(.6) grayscale(.2)}
   /* POI · The Machine 视角：白框=普通人/物（机器默认），黄框=知道机器存在的人（ADMIN/ASSET），红框=威胁 */
   .poi-ov{position:absolute;inset:0;z-index:8;pointer-events:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:hidden;--pc:rgba(245,245,245,.95);--pcs:rgba(255,255,255,.35);--pcd:rgba(245,245,245,.5)}
   .poi-ov.y{--pc:rgba(250,212,30,.97);--pcs:rgba(250,212,30,.4);--pcd:rgba(250,212,30,.55)}
@@ -624,6 +621,7 @@
   <div class="mask" id="mRoom"><div class="sheet" style="max-height:92vh">
     <h2 id="roomEditTitle">房间</h2>
     <div class="field"><label>房间名</label><input id="reName" placeholder="卧室 / 浴室 / 书房…"></div>
+    <div class="field"><label>这是谁的房间（每个人一套，互不共用）</label><select id="reOwner"></select></div>
 
     <div class="apisec">
       <div class="apihd">场景设定 · 决定这个房间长什么样（多张角度图共用一套设定，才是同一个房间）</div>
@@ -728,7 +726,7 @@ function toast(t){ try{ api?.ui?.toast(t); }catch(e){} }
 function esc(s){ return (s||"").replace(/[&<>]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m])); }
 function fmtTime(ts){ if(!ts) return ""; const d=new Date(ts),p=n=>String(n).padStart(2,"0"); return `${d.getMonth()+1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
 
-let rooms=[], logs=[], gifts=[], curRoom=null, roomIdx=0, roomTimer=null;
+let allRooms=[], rooms=[], logs=[], gifts=[], curRoom=null, roomIdx=0, roomTimer=null;
 let micOn=false, roomTalk="";
 let gType="春梦", gView="监控", gLen="中", logShown=12, curArchive=null;
 let customTypes=[];
@@ -1092,7 +1090,13 @@ function pickPano(room){ const d=charNow(),N=d.getHours()*60+d.getMinutes();
   return { pano:room.pano, panoAR:room.panoAR, panoZoom:room.panoZoom, light:"母版" }; }
 
 /* ---------- rooms 存储 ---------- */
-async function loadRooms(){ try{ const l=await api.db.list("rooms",{limit:200}); rooms=(l?.items||l||[]).map(r=>({id:r.id,...(r.data||r)})).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)); }catch(e){ rooms=[]; } }
+/* 每个角色一套自己的房间：allRooms 是全部，rooms 只是当前监控对象的那一套 */
+function roomRec(r){ const o={...r}; delete o.id; return o; }
+function applyRoomScope(){ const cid=(_cfg&&_cfg.charId)||""; rooms=allRooms.filter(r=>(r.charId||"")===cid); }
+async function loadRooms(){ try{ const l=await api.db.list("rooms",{limit:200}); allRooms=(l?.items||l||[]).map(r=>({id:r.id,...(r.data||r)})).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)); }catch(e){ allRooms=[]; }
+  /* 老版本的房间没有主人：一次性归给现在绑定的这个人（不对的话在房间编辑里改「这是谁的房间」） */
+  const cid=(_cfg&&_cfg.charId)||""; if(cid){ for(const r of allRooms){ if(!r.charId){ r.charId=cid; try{ await api.db.update("rooms",r.id,roomRec(r)); }catch(e){} } } }
+  applyRoomScope(); }
 async function loadLogs(){ try{ const l=await api.db.list("logs",{limit:1000}); logs=(l?.items||l||[]).map(r=>({id:r.id,...(r.data||r)})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)); }catch(e){ logs=[]; } }
 function roomLogsOf(id){ return logs.filter(x=>x.roomId===id); }
 async function loadGifts(){ try{ const l=await api.db.list("gifts",{limit:200}); gifts=(l?.items||l||[]).map(r=>({id:r.id,...(r.data||r)})); }catch(e){ gifts=[]; } }
@@ -1108,7 +1112,7 @@ async function regenRoomImages(room, onStep){ const cfg=await getCfg(); if(!imgR
   const sc=room.scene||{}; let seed=(sc.seed!=null&&sc.seed!=="")?sc.seed:null; const steps=[1,2,3].includes(sc.angles)?sc.angles:2;
   const p=await genPanorama(cfg, roomScenePrompt(room), seed, steps, onStep);
   room.pano=p.url; room.panoAR=p.ar; room.panoZoom=zoomForAR(p.ar); room.images=[];
-  try{ await api.db.update("rooms",room.id,{name:room.name,camPos:room.camPos||"",scene:room.scene,pano:room.pano,panoAR:room.panoAR,panoZoom:room.panoZoom,images:[],times:room.times||[],createdAt:room.createdAt||Date.now()}); }catch(e){}
+  try{ await api.db.update("rooms",room.id,{name:room.name,charId:room.charId||"",camPos:room.camPos||"",scene:room.scene,pano:room.pano,panoAR:room.panoAR,panoZoom:room.panoZoom,variants:room.variants||[],images:[],times:room.times||[],createdAt:room.createdAt||Date.now()}); }catch(e){}
   if(curRoom&&curRoom.id===room.id){ openRoom(room); } renderHub(); }
 
 /* ---------- HUB ---------- */
@@ -1120,12 +1124,6 @@ function renderHub(){
     : `还没有房间。到「设置 › TA 的房间」加一个，给它放几张广角图。`;
   const hb=$("#hubBind"); if(hb) hb.onclick=openBind;
   const g=$("#roomGrid"); g.innerHTML="";
-  const fd=_cfg&&_cfg.charId?fieldOf(_cfg.charId):null;
-  if(fd){ const tile=document.createElement("div"); tile.className="rtile field"; const out=!!(charLocation&&charLocation.home===false);
-    tile.innerHTML=`<div class="thumb">${fd.pano?`<img src="${fd.pano}">`:`<div class="noimg">◎</div>`}<div class="scan"></div><div class="vig"></div>`+
-      `<span class="cid mono">${esc(fd.camId||"CAM ----")}</span><span class="occ${out?" here":""}"><i></i>${out?"LIVE":"LAST"}</span></div>`+
-      `<div class="rn"><span class="dot"></span>${esc(fd.place||"外面")}</div>`;
-    tile.onclick=()=>openRoom(fieldRoom(fd)); g.appendChild(tile); }
   rooms.forEach((r,i)=>{
     const tile=document.createElement("div"); tile.className="rtile";
     const img=pickPano(r).pano||(r.images&&r.images[0])||"";
@@ -1520,7 +1518,7 @@ function startCamClock(){ stopCamClock(); const tm=$("#camTm"); if(!tm) return;
   const tick=()=>{ const d=charNow(),p=n=>String(n).padStart(2,"0"); tm.textContent=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
   tick(); roomTimer=setInterval(tick,1000); }
 function stopCamClock(){ if(roomTimer){ clearInterval(roomTimer); roomTimer=null; } }
-function backToHub(){ stopCamClock(); stopCaptions(); curArchive=null; curRoom=null; $("#roomView").hidden=true; $("#hub").hidden=false;
+function backToHub(){ stopCamClock(); stopCaptions(); curArchive=null; if(curRoom&&curRoom.field) logs=logs.filter(x=>x.roomId!==curRoom.id); curRoom=null; $("#roomView").hidden=true; $("#hub").hidden=false;
   $("#topTitle").textContent=""; $("#topTag").textContent="MONITOR"; renderHub(); }
 $("#brandBtn").onclick=async()=>{ if(!$("#roomView").hidden){ backToHub(); } else { await refreshState(); $("#mSet").classList.add("on"); } };
 /* 对屋里说话（模拟：打字＝说出口，融进下一次生成） */
@@ -1554,7 +1552,7 @@ async function sendTalk(text){ const cfg=await getCfg();
     holder.remove();
     if(!reply){ toast("TA 没回应，换个站子/模型试试"); return; }
     const rec={ roomId:curRoom.id, type:"对讲", view:"自述", talk:text, text:reply, fav:false, createdAt:Date.now() };
-    try{ const cr=await api.db.create("logs",rec); rec.id=cr&&cr.id; }catch(e){}
+    try{ const cr=await saveLog(rec); rec.id=cr&&cr.id; }catch(e){}
     logs.unshift(rec); renderRoomLogs(); }
   catch(e){ holder.remove(); toast("对讲失败："+(e&&e.message||e)); } }
 
@@ -1613,7 +1611,7 @@ async function generate(){
     holder.remove();
     if(!text){ toast("模型没返回，换个站子/模型"); }
     else{ const {title,body}=splitTitle(text); const rec={ roomId:curRoom.id, type:"此刻", title:title||"这一刻", text:body, view, talk:"", fav:false, createdAt:Date.now() };
-      try{ const cr=await api.db.create("logs",rec); rec.id=cr&&cr.id; }catch(e){}
+      try{ const cr=await saveLog(rec); rec.id=cr&&cr.id; }catch(e){}
       logs.unshift(rec); renderRoomLogs(); toast("已生成一条"); }
   }catch(e){ holder.remove(); toast("生成失败："+(e&&e.message||e)); }
   btn.disabled=false; btn.textContent="● 生成这一刻";
@@ -1686,7 +1684,7 @@ async function genSubtitles(){ const cfg=await getCfg();
     const lines=parseCaptions(out);
     if(!lines.length){ toast("没收到字幕，换个站子/模型"); setCamCap(""); }
     else { const rec={ roomId:curRoom.id, type:"收音", title:"收音 · "+(curRoom.name||"房间"), subs:lines.map(l=>l.text), text:"", view:"监控", talk:"", fav:false, createdAt:Date.now() };
-      try{ const cr=await api.db.create("logs",rec); rec.id=cr&&cr.id; }catch(e){} logs.unshift(rec); renderRoomLogs();
+      try{ const cr=await saveLog(rec); rec.id=cr&&cr.id; }catch(e){} logs.unshift(rec); renderRoomLogs();
       const useVoice=await voiceReady(cfg.charId); playCaptions(lines, useVoice, cfg.charId); if(!useVoice) toast("没配语音，静音只出字幕"); }
   }catch(e){ toast("收音失败："+(e&&e.message||e)); setCamCap(""); }
   if(mic){ mic.classList.remove("busy"); mic.style.pointerEvents=""; } }
@@ -1744,7 +1742,7 @@ async function batchGenerate(){ const cfg=await getCfg();
     const recs=parseRecords(out);
     if(!recs.length){ toast("没生成出来，换个站子/模型"); }
     else { let n=0; for(const e of recs){ const rec={ roomId:curRoom.id, type:"回放", title:e.title, text:e.text, view, talk:"", fav:false, createdAt:pastDate(e.time, n) };
-        try{ const cr=await api.db.create("logs",rec); rec.id=cr&&cr.id; }catch(err){} logs.unshift(rec); n++; }
+        try{ const cr=await saveLog(rec); rec.id=cr&&cr.id; }catch(err){} logs.unshift(rec); n++; }
       logShown=Math.max(logShown, n+6); renderRoomLogs(); toast("生成了 "+n+" 条"); }
   }catch(e){ toast("生成失败："+(e&&e.message||e)); }
   if(btn){ btn.disabled=false; btn.textContent=old; } }
@@ -1762,7 +1760,7 @@ async function customGenerate(query){ query=String(query||"").trim(); if(!query)
     const p=parseBlock(String(out||"").trim()); const title=p.title, body=p.body;
     if(!body){ toast("自填没出内容——被拦就换个非 Gemini 的宽松站子，或检查模型名"); }
     else { const rec={ roomId:curRoom.id, type:"回放", title:title||query.slice(0,12), text:body, view, talk:"", fav:false, createdAt:pastDate(p.time,0) };
-      try{ const cr=await api.db.create("logs",rec); rec.id=cr&&cr.id; }catch(e){} logs.unshift(rec); renderRoomLogs(); const si=$("#searchInput"); if(si) si.value=""; $("#mSearch").classList.remove("on"); openRead(rec); }
+      try{ const cr=await saveLog(rec); rec.id=cr&&cr.id; }catch(e){} logs.unshift(rec); renderRoomLogs(); const si=$("#searchInput"); if(si) si.value=""; $("#mSearch").classList.remove("on"); openRead(rec); }
   }catch(e){ toast("生成失败："+(e&&e.message||e)); }
   if(go){ go.disabled=false; go.textContent=old; } }
 async function toggleFav(r){ r.fav=!r.fav; try{ if(r.id) await api.db.update("logs",r.id,{roomId:r.roomId,type:r.type,view:r.view||"",talk:r.talk||"",text:r.text||"",title:r.title||"",subs:r.subs||[],fav:r.fav,createdAt:r.createdAt}); }catch(e){} renderRoomLogs(); }
@@ -1898,7 +1896,10 @@ $("#reCamSum").onclick=async()=>{ const cfg=await getCfg(); if(!txtReady(cfg)){ 
   catch(e){ toast("失败："+(e&&e.message||e)); }
   btn.disabled=false; btn.textContent=old; };
 
-function openRoomEdit(room,from){ reRoom=room; _reFrom=from||"hub";
+async function fillReOwner(room){ const sel=$("#reOwner"); if(!sel) return; const cid=(room&&room.charId)||(_cfg&&_cfg.charId)||"";
+  let chars=[]; try{ const cs=await api.characters.list(); chars=(cs&&(cs.items||cs))||[]; }catch(e){}
+  sel.innerHTML=chars.map(ch=>`<option value="${esc(ch.id)}"${ch.id===cid?" selected":""}>${esc(ch.name||ch.title||"角色")}</option>`).join("")||`<option value="${esc(cid)}">${esc((_cfg&&_cfg.charName)||"当前对象")}</option>`; }
+function openRoomEdit(room,from){ reRoom=room; _reFrom=from||"hub"; fillReOwner(room);
   $("#roomEditTitle").textContent=room?"TA 的房间":"添加房间";
   $("#reName").value=room?(room.name||""):"";
   $("#reCam").value=room?(room.camPos||""):"";
@@ -1938,10 +1939,13 @@ $("#reSave").onclick=async()=>{ const name=$("#reName").value.trim(); if(!name){
   const camPos=$("#reCam").value.trim();
   const scene={ style:$("#reStyle").value.trim(), light:$("#reLight").value.trim(), items:[...reItemsArr], angles:reAngles, seed:$("#reSeed").value.trim() };
   const times=reRoom?(reRoom.times||[]):[];
-  const rec={ name, camPos, scene, pano:rePano||"", panoAR:rePanoAR||0, panoZoom:(rePano?(rePanoZoom||zoomForAR(rePanoAR)):((reRoom&&reRoom.panoZoom)||0)), variants:reVars.map(v=>({...v})), images:(rePano?[]:(reRoom?(reRoom.images||[]):[])), times, createdAt:(reRoom&&reRoom.createdAt)||Date.now() };
+  const owner=($("#reOwner")&&$("#reOwner").value)||(reRoom&&reRoom.charId)||(_cfg&&_cfg.charId)||"";
+  const rec={ name, charId:owner, camPos, scene, pano:rePano||"", panoAR:rePanoAR||0, panoZoom:(rePano?(rePanoZoom||zoomForAR(rePanoAR)):((reRoom&&reRoom.panoZoom)||0)), variants:reVars.map(v=>({...v})), images:(rePano?[]:(reRoom?(reRoom.images||[]):[])), times, createdAt:(reRoom&&reRoom.createdAt)||Date.now() };
   if(reRoom){ Object.assign(reRoom,rec); try{ await api.db.update("rooms",reRoom.id,rec); }catch(e){} }
-  else{ try{ const cr=await api.db.create("rooms",rec); rec.id=cr&&cr.id; }catch(e){} rooms.push(rec); }
+  else{ try{ const cr=await api.db.create("rooms",rec); rec.id=cr&&cr.id; }catch(e){} allRooms.push(rec); }
+  applyRoomScope(); const moved=owner!==((_cfg&&_cfg.charId)||"");
   $("#mRoom").classList.remove("on");
+  if(moved){ if(curRoom&&reRoom&&curRoom.id===reRoom.id) backToHub(); else { renderHub(); if(_reFrom==="rooms") openRooms(); } refreshState(); toast("已保存，这间归给了别人"); return; }
   if(curRoom && reRoom && reRoom.id===curRoom.id){ openRoom(reRoom); } else { renderHub(); if(_reFrom==="rooms") openRooms(); }
   refreshState();
   toast("已保存房间"); };
@@ -1949,7 +1953,7 @@ let _delArmed=false,_delT;
 $("#reDel").onclick=async()=>{ if(!reRoom) return;
   if(!_delArmed){ _delArmed=true; $("#reDel").textContent="再点确认删除"; _delT=setTimeout(()=>{_delArmed=false;$("#reDel").textContent="删房间";},3000); return; }
   clearTimeout(_delT); _delArmed=false; $("#reDel").textContent="删房间";
-  try{ if(reRoom.id) await api.db.delete("rooms",reRoom.id); }catch(e){} rooms=rooms.filter(r=>r!==reRoom);
+  try{ if(reRoom.id) await api.db.delete("rooms",reRoom.id); }catch(e){} allRooms=allRooms.filter(r=>r!==reRoom); applyRoomScope();
   $("#mRoom").classList.remove("on"); refreshState();
   if(_reFrom==="rooms"){ renderHub(); openRooms(); } else { backToHub(); } toast("已删除房间"); };
 /* 房间管理（在设置里） */
@@ -1999,7 +2003,7 @@ async function placeGift(gift, roomId){ const cfg=await getCfg(); if(!imgReady(c
   try{ const edited=await genImageEdit(cfg, room.pano, editOnePrompt("在房间里自然地摆上一件"+gift.phrase+"，放在一个合适的平面或位置上"));
     const im=await loadImg(edited); room.pano=edited; room.panoAR=(im.naturalWidth||1)/(im.naturalHeight||1); room.panoZoom=zoomForAR(room.panoAR); room.images=[];
     room.scene=room.scene||{}; room.scene.items=room.scene.items||[]; if(!room.scene.items.includes(gift.phrase)) room.scene.items.push(gift.phrase);
-    try{ await api.db.update("rooms",room.id,{name:room.name,camPos:room.camPos||"",scene:room.scene,pano:room.pano,panoAR:room.panoAR,panoZoom:room.panoZoom,images:[],times:room.times||[],createdAt:room.createdAt||Date.now()}); }catch(e){}
+    try{ await api.db.update("rooms",room.id,{name:room.name,charId:room.charId||"",camPos:room.camPos||"",scene:room.scene,pano:room.pano,panoAR:room.panoAR,panoZoom:room.panoZoom,variants:room.variants||[],images:[],times:room.times||[],createdAt:room.createdAt||Date.now()}); }catch(e){}
     if(curRoom&&curRoom.id===room.id) openRoom(room); renderHub();
     gift.roomId=roomId; gift.placed=true;
     try{ if(gift.id) await api.db.update("gifts",gift.id,{name:gift.name,phrase:gift.phrase,roomId,placed:true,createdAt:gift.createdAt}); }catch(e){}
@@ -2149,7 +2153,7 @@ $("#bindPreview").onclick=async()=>{ const cur=await getCfg(); const id=(bindPic
   catch(e){ $("#rdBody").textContent="读取失败："+(e&&e.message||e); } };
 $("#bindSave").onclick=async()=>{ const cur=await getCfg(); const pick=bindPick||(cur.charId?{id:cur.charId,name:cur.charName,av:cur.charAv}:null); if(!pick){ toast("先选一个角色"); return; }
   const _rt=$("#bindRoutine").value.trim(); const _pc={...(cur.perChar||{})}; _pc[pick.id]={..._pc[pick.id],routine:_rt};
-  await saveCfg({charId:pick.id,charName:pick.name,charAv:pick.av||"",routine:_rt,perChar:_pc}); $("#mBind").classList.remove("on"); await refreshState(); refreshGenHint(); charTzOffset=null; charLocation=null; detectCharTz(pick.id).catch(()=>{}); toast("已保存对象与设定"); };
+  await saveCfg({charId:pick.id,charName:pick.name,charAv:pick.av||"",routine:_rt,perChar:_pc}); applyRoomScope(); renderHub(); $("#mBind").classList.remove("on"); await refreshState(); refreshGenHint(); charTzOffset=null; charLocation=null; detectCharTz(pick.id).catch(()=>{}); toast("已保存对象与设定"); };
 
 /* 导入复古字体（换掉衬线显示字体） */
 function applySerif(dataUrl){ let st=document.getElementById("uSerif"); if(!st){ st=document.createElement("style"); st.id="uSerif"; document.head.appendChild(st); }
@@ -2168,7 +2172,7 @@ $("#lkSave").onclick=async()=>{ const v=$("#lkPin").value.replace(/\D/g,"").slic
 let _armed=false,_t;
 $("#sClear").onclick=async()=>{ if(!_armed){ _armed=true; $("#sClear").innerHTML='<span class="ic">✕</span>再点一次确认清除'; _t=setTimeout(()=>{_armed=false;$("#sClear").innerHTML='<span class="ic">✕</span>清除所有数据';},3000); return; }
   clearTimeout(_t); _armed=false; $("#sClear").innerHTML='<span class="ic">✕</span>清除所有数据';
-  try{ for(const r of [...logs]){ if(r.id) await api.db.delete("logs",r.id); } for(const rm of [...rooms]){ if(rm.id) await api.db.delete("rooms",rm.id); } logs=[]; rooms=[]; toast("已清空"); backToHub(); }catch(e){ toast("清除失败"); }
+  try{ for(const r of [...logs]){ if(r.id) await api.db.delete("logs",r.id); } for(const rm of [...allRooms]){ if(rm.id) await api.db.delete("rooms",rm.id); } logs=[]; allRooms=[]; rooms=[]; toast("已清空"); backToHub(); }catch(e){ toast("清除失败"); }
   $("#mSet").classList.remove("on"); };
 
 /* ---------- 推送计划（快捷指令离线推） ---------- */
@@ -2236,13 +2240,9 @@ async function gotoWho(){
 /* ---------- 机器 · 搜人 ----------
    说出名字 → 机器认出是谁 → 按作息/人设/记忆定位 TA 此刻在哪、在干嘛、和谁 →
    在家且那个房间有机位：直接切进家里的监控；否则：调出「最近的那台摄像头」，生成那个地方此刻的监控画面。 */
-let fields=[]; /* 每个角色最近一次被机器找到时的外勤画面 */
-async function loadFields(){ try{ const l=await api.db.list("fields",{limit:100}); fields=(l?.items||l||[]).map(r=>({id:r.id,...(r.data||r)})); }catch(e){ fields=[]; } }
-function fieldOf(charId){ return fields.find(f=>f.charId===charId)||null; }
-function fieldRoom(f){ return { id:"field_"+f.charId, field:true, name:f.place||"外面", pano:f.pano||"", panoAR:f.panoAR||1.5, panoZoom:f.panoZoom||zoomForAR(f.panoAR||1.5), images:[], variants:[], camId:f.camId||"", loc:f.loc||null }; }
-async function saveField(f){ const old=fieldOf(f.charId);
-  try{ if(old&&old.id){ await api.db.update("fields",old.id,f); f.id=old.id; } else { const cr=await api.db.create("fields",f); f.id=cr&&cr.id; } }catch(e){}
-  fields=fields.filter(x=>x.charId!==f.charId); fields.push(f); return f; }
+/* 机器调出来的外面画面是一次性的：不存库、不进主页，离开就没了；在里面生成的记录也只活在这一页 */
+function fieldRoom(f){ return { id:"field_"+f.charId+"_"+f.at, field:true, name:f.place||"外面", pano:f.pano||"", panoAR:f.panoAR||1.5, panoZoom:f.panoZoom||zoomForAR(f.panoAR||1.5), images:[], variants:[], camId:f.camId||"", loc:f.loc||null }; }
+async function saveLog(rec){ if(String(rec&&rec.roomId||"").startsWith("field_")) return null; return await api.db.create("logs",rec); }
 function fieldPrompt(loc,place){ const l=loc||{};
   return [ "CCTV 监控摄像头画面："+(l.cam||"附近的监控摄像头")+"，高位俯拍，广角镜头，轻微鱼眼畸变，画面四角暗角",
     "地点："+place, l.scene||"",
@@ -2254,7 +2254,7 @@ function fieldPrompt(loc,place){ const l=loc||{};
 async function switchTarget(id,name,av){ const c=await getCfg();
   if(c.charId!==id){ const pc={...(c.perChar||{})}; if(c.charId) pc[c.charId]={...pc[c.charId],routine:c.routine||""};
     const nx=pc[id]||{}; await saveCfg({charId:id,charName:name,charAv:av||"",routine:nx.routine||"",perChar:pc});
-    charLocation=null; charTzOffset=null; detectCharTz(id).catch(()=>{}); }
+    charLocation=null; charTzOffset=null; detectCharTz(id).catch(()=>{}); applyRoomScope(); }
   else if(name!==c.charName||(av||"")!==(c.charAv||"")) await saveCfg({charName:name,charAv:av||""});
   await refreshState(); refreshGenHint(); }
 function _normName(x){ return String(x||"").replace(/\s+/g,"").toLowerCase(); }
@@ -2312,16 +2312,12 @@ async function machineSearch(q,opts){ opts=opts||{}; q=String(q||"").trim();
     if(room&&(pickPano(room).pano||(room.images||[]).length)){ await mLine("FEED",camLabel(room)+" · "+(room.name||"房间"),my); if(my!==_machTk) return;
       machStatus("SUBJECT LOCATED"); await _mSleep(950); if(my!==_machTk) return; machClose(); if(!document.body.classList.contains("entered")) endIntro(); openRoom(room); return; } }
   /* 不在家 / 家里那块没机位 → 调最近的摄像头、生成此刻的画面 */
-  let f=fieldOf(id);
-  const reuse=!opts.force && f && f.place===place && f.activity===(loc.activity||"") && f.pano && (Date.now()-(f.at||0)<LOC_TTL);
-  if(!reuse){ const camId="CAM "+String(1000+Math.floor(Math.random()*9000));
-    const got=mWait("ACQUIRING"); let pano="",ar=1.5;
-    if(imgReady(cfg)){ try{ const url=await genImageRaw(cfg, fieldPrompt(loc,place), null, "1536x1024"); const c=await compressKeep(url); pano=c.url; ar=c.ar||1.5; got((loc.cam||"附近监控")+" · "+camId); }
-      catch(e){ got("NO VISUAL — "+String(e&&e.message||e).slice(0,40),true); } }
-    else got("NO IMAGE API — AUDIO ONLY",true);
-    if(my!==_machTk) return;
-    f=await saveField({ charId:id, place, activity:loc.activity||"", cam:loc.cam||"", camId, pano, panoAR:ar, panoZoom:zoomForAR(ar), loc, at:Date.now() }); }
-  else await mLine("FEED",(f.cam||"附近监控")+" · "+(f.camId||""),my);
+  const camId="CAM "+String(1000+Math.floor(Math.random()*9000));
+  const got=mWait("ACQUIRING"); let pano="",ar=1.5;
+  if(imgReady(cfg)){ try{ const url=await genImageRaw(cfg, fieldPrompt(loc,place), null, "1536x1024"); const c=await compressKeep(url); pano=c.url; ar=c.ar||1.5; got((loc.cam||"附近监控")+" · "+camId); }
+    catch(e){ got("NO VISUAL — "+String(e&&e.message||e).slice(0,40),true); } }
+  else got("NO IMAGE API — AUDIO ONLY",true);
+  const f={ charId:id, place, pano, panoAR:ar, panoZoom:zoomForAR(ar), camId, loc, at:Date.now() };
   if(my!==_machTk) return;
   machStatus("SUBJECT LOCATED"); await _mSleep(950); if(my!==_machTk) return;
   machClose(); if(!document.body.classList.contains("entered")) endIntro(); openRoom(fieldRoom(f)); }
@@ -2337,7 +2333,7 @@ else{ buildKeypad(); renderPinDots();
   getCfg().then(async c=>{ customTypes=Array.isArray(c.customTypes)?c.customTypes:[]; gType=allTypes()[0]||"春梦";
     micOn=!!c.micOn;
     if(c.fontData) applySerif(c.fontData);
-    await loadRooms(); await loadLogs(); await loadGifts(); await loadFields(); await refreshState(); renderHub();
+    await loadRooms(); await loadLogs(); await loadGifts(); await refreshState(); renderHub();
     loadHostWorld().catch(()=>{}); if(c.charId) detectCharTz(c.charId).catch(()=>{}); hostModels().then(m=>{_hostModels=m;}).catch(()=>{});
     if(c.charId){ /* 开 app 定位：半小时内不重推，超过半小时才重新推演 */
       if(c.locCache && c.locAt && (!c.locCharId||c.locCharId===c.charId) && (Date.now()-c.locAt < LOC_TTL)){ charLocation=c.locCache; if(!$("#hub").hidden) renderHub(); }
