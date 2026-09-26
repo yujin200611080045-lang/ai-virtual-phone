@@ -183,6 +183,7 @@
     border:1px solid var(--line);background:rgba(30,26,24,.5);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer}
   .slimrec .md,.slimrec .hm{white-space:nowrap}
   .slimrec .rm{font-size:12px;color:var(--sub);flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .arc-hd{font-size:11px;letter-spacing:3px;color:var(--amber);margin:14px 0 6px;font-family:ui-monospace,Menlo,monospace}
   .arc-line.arc-say{font-style:normal;color:var(--ink)}
   .arc-line.arc-act{font-style:normal;color:rgba(200,190,180,.72)}
   .arc-line.arc-snd{font-style:italic;color:rgba(160,150,140,.6);font-size:.92em}
@@ -1549,7 +1550,7 @@ const TALK_SYS=[
 "你在为一段「居家监控」写对讲那一刻的收音记录。用户透过监控对讲，突然对 TA 说了一句话。",
 "TA 原本并不知道用户在监控 TA、还能透过监控跟 TA 说话——除非 TA 的记忆里已经发生过这种事。所以第一次突然听到她的声音，TA 会很意外：是慌、是恼、是警惕、是害羞还是兴奋，完全按 TA 的性格来；如果记忆里已经知道了，就按知道了的状态自然反应。",
 "只依据给出的资料写 TA 的身份、性格、与她的关系，写法和尺度按预设来。"].join("\n");
-const TALK_FMT="输出 6-14 行，按时间顺序，TA 的话和动作神态穿插着写。每行只一句、必须以下面标签之一开头：\n[话] TA 说出口的话——写「原话」；若说外语，「」里写原话，后面紧跟（中文翻译）\n[动] TA 此刻的动作、神态、身体反应——镜头看得到的白描，一句\n[音] 听得到的声音或拟声，如 *咚*\n示例只示范格式、不要照抄：\n[音] *手机啪地掉在地毯上*\n[动] 他猛地抬头，盯着天花板角落那个红点\n[话]「……谁？」\n只要这三类，不要编号、不要旁白解说。";
+const TALK_FMT="分两部分输出。\n第一部分·收音：只写听得到的，6-12 行，按时间顺序，每行只一句、必须以标签开头：\n[话] TA 说出口的话——写「原话」；若说外语，「」里写原话，后面紧跟（中文翻译）\n[音] 听得到的声音或拟声，如 *咚*\n[客] 别人说的话（只有旁边真有别人时才出现）——写 名字「原话」\n收音里不要写动作、神态、心理，只有声音。\n第二部分·画面：另起一行只写 ===画面===，下面写这段对讲发生时监控画面拍到的样子——TA 听到她的声音那一刻起的动作、神态、身体反应，和上面的收音一句句对得上。";
 async function sendTalk(text){ const cfg=await getCfg();
   if(!cfg.charId){ toast("先选一个人"); $("#intro").classList.add("on"); gotoHome(); return; }
   if(!txtReady(cfg)){ toast("文字接口没配好"); openApi(); return; }
@@ -1562,25 +1563,29 @@ async function sendTalk(text){ const cfg=await getCfg();
   else { scene=`【场景】TA 此刻就在「${rn}」里${loc.activity?("，"+loc.activity):""}；她的声音从房间里的监控喇叭传出来。`; where=`家里「${rn}」的监控喇叭`; }
   const mic=$("#rvVoice"); if(mic) mic.disabled=true; stopCaptions(); setCamCap("● 对讲中…");
   try{ const now=charNow(),hh=String(now.getHours()).padStart(2,"0"),mm=String(now.getMinutes()).padStart(2,"0");
-    const instr=[TALK_SYS,"",`【此刻 ${hh}:${mm}】`+scene,`【她透过对讲说】「${text}」`,"",TALK_FMT].join("\n");
+    const view=(cfg.genView==="自述")?"自述":"监控"; const wlen=Math.min(parseInt(cfg.genLen,10)||1000, 800);
+    const instr=[TALK_SYS,"",`【此刻 ${hh}:${mm}】`+scene,`【她透过对讲说】「${text}」`,"",TALK_FMT,`画面部分：${VIEW_LINE[view]} 约 ${Math.round(wlen*0.5)}-${wlen} 字。`].join("\n");
     const out=await hostGenerate(cfg.charId, instr);
     if(isBlockedReply(out)){ toast("被模型那边拦下了，换个说法再试"); setCamCap(""); return; }
-    const lines=parseCaptions(out);
-    if(!lines.length){ toast("TA 没回应，再试一次"); setCamCap(""); return; }
-    const rec={ roomId:curRoom.id, type:"对讲", title:"对讲 · "+rn, talk:text, subs:lines.map(l=>l.text), subItems:lines, audio:[], text:"", view:"监控", fav:false, createdAt:Date.now() };
+    /* 拆成两块：收音（只要声音）＋ 画面正文 */
+    const raw=String(out||""); const cut=raw.search(/^\s*[=＝]{2,}\s*画面\s*[=＝]{2,}\s*$|^\s*【画面】\s*$/m);
+    const subPart=cut>=0?raw.slice(0,cut):raw; const scenePart=cut>=0?raw.slice(cut).replace(/^\s*[=＝]{2,}\s*画面\s*[=＝]{2,}\s*|^\s*【画面】\s*/,"").trim():"";
+    const lines=parseCaptions(subPart).filter(l=>!l.act);
+    if(!lines.length&&!scenePart){ toast("TA 没回应，再试一次"); setCamCap(""); return; }
+    const rec={ roomId:curRoom.id, type:"对讲", title:"对讲 · "+rn, talk:text, subs:lines.map(l=>l.text), subItems:lines, audio:[], text:scenePart, view, fav:false, createdAt:Date.now() };
     try{ const cr=await saveLog(rec); rec.id=cr&&cr.id; }catch(e){}
     logs.unshift(rec); renderRoomLogs();
     const useVoice=await voiceReady(cfg.charId);
     /* 先亮出你说的那句，再是 TA 的反应；第 0 条是你的话，所以声音下标要减 1 */
     playCaptions([{text:"「"+text+"」",other:true,you:true}].concat(lines), useVoice, cfg.charId, {onClip:(i,url)=>keepClip(rec,i-1,url)});
-    rememberTalk(cfg, text, lines, where, hh, mm);
+    rememberTalk(cfg, text, lines, where, hh, mm, scenePart);
   }catch(e){ toast("对讲失败："+(e&&e.message||e)); setCamCap(""); }
   finally{ if(mic) mic.disabled=false; } }
 /* 对讲写进角色记忆：每次进短期事件流（聊天里问得到）；第一次还记一条长期记忆「TA 知道了有监控」 */
-async function rememberTalk(cfg, text, lines, where, hh, mm){ const m=api&&api.memory; if(!m) return;
+async function rememberTalk(cfg, text, lines, where, hh, mm, scenePart){ const m=api&&api.memory; if(!m) return;
   const cn=cfg.charName||"TA"; let un="她"; try{ const u=await api.user.getProfile({characterId:cfg.charId}); if(u&&u.name) un=u.name; }catch(e){}
   const said=lines.filter(l=>l.speak).map(l=>subCore(l.text)).join(" ").slice(0,180);
-  const acts=lines.filter(l=>l.act).map(l=>subCore(l.text)).slice(0,2).join("；").slice(0,90);
+  const acts=String(scenePart||"").replace(/\s+/g,"").slice(0,90);
   const summary=`【${hh}:${mm}】${un}透过${where}突然对${cn}说话：「${text}」。${cn}${acts?("的反应："+acts+"；"):""}回了：「${said||"……"}」。从这一刻起${cn}知道了，${un}能透过监控看到自己、还能对讲。`;
   try{ if(m.addTimeline) await m.addTimeline({ characterId:cfg.charId, appLabel:"暗房", detail:"intercom", summary, appEventId:"darkroom_talk_"+Date.now(), data:{ said:text, reply:said } }); }catch(e){}
   const c=await getCfg(); const pc={...(c.perChar||{})};
@@ -1821,9 +1826,11 @@ function openRead(r){ $("#rdTitle").textContent = r.title || (r.type+" 记录");
   const meta=document.createElement("div"); meta.className="arc-meta"; meta.textContent=`${typeTag(r)} · ${fmtTime(r.createdAt)}`; box.appendChild(meta);
   if(r.talk){ const t=document.createElement("div"); t.className="arc-you"; t.textContent="你说："+r.talk; box.appendChild(t); }
   if(r.subs&&r.subs.length){
+    if(r.type==="对讲"){ const h=document.createElement("div"); h.className="arc-hd"; h.textContent="收音"; box.appendChild(h); }
     if(r.type==="收音"||r.type==="对讲"){ const b=document.createElement("button"); b.className="rd-play"; b.textContent="▶ 回放声音"; b.onclick=()=>replaySubs(r,b); box.appendChild(b); }
     const sec=document.createElement("div"); sec.className="arc-sub"; sec.innerHTML=subItemsOf(r).map(it=>it.act?`<p class="arc-line arc-act">${esc(subCore(it.text))}</p>`:(it.speak||it.other)?`<p class="arc-line arc-say">「${esc(subCore(it.text))}」</p>`:`<p class="arc-line arc-snd">${esc(subCore(it.text))}</p>`).join(""); box.appendChild(sec); }
-  if(r.text){ const sec=document.createElement("div"); sec.innerHTML=paras(r.text); box.appendChild(sec); }
+  if(r.text){ if(r.type==="对讲"&&r.subs&&r.subs.length){ const h=document.createElement("div"); h.className="arc-hd"; h.textContent="监控画面"; box.appendChild(h); }
+    const sec=document.createElement("div"); sec.innerHTML=paras(r.text); box.appendChild(sec); }
   if(box.childNodes.length<=1) { const e=document.createElement("div"); e.textContent="（空）"; box.appendChild(e); }
   $("#mRead").classList.add("on"); }
 function closeRead(){ stopReplay(); $("#mRead").classList.remove("on"); }
