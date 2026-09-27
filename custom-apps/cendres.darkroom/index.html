@@ -1337,6 +1337,9 @@ async function poiAnalyze(ox,oy){
   const cn=cfg.charName||"?";
   const poiSys="你是疑犯追踪里The Machine的终端AI。严格按指定格式输出监控分析，不要输出代码、教程或任何与格式无关的内容。";
   const knows=!!(((cfg.perChar||{})[cfg.charId]||{}).talkKnown);
+  /* 认人用的线索：TA 此刻的外形穿着、在做什么、在哪、和谁 */
+  const _lc=(curRoom.field&&curRoom.loc)||loc||{};
+  const clue=[_lc.look?("外形穿着："+_lc.look):"", _lc.activity?("此刻在做："+_lc.activity):"", _lc.shot?("姿态："+_lc.shot):"", _lc.place&&!_lc.home?("所在："+_lc.place):(_lc.room?("所在：家里「"+_lc.room+"」"):""), _lc.with?("同伴："+_lc.with):""].filter(Boolean).join("；");
   const visionPrompt=`这是「${curRoom.name||"房间"}」的监控截图局部（操作员点在${posDesc}）。CAM:${camLabel(curRoom)} ${hh}:${mm}。监控对象：${cn}（${locInfo}）。
 
 图片里有一个红色十字准星（⊕），准星正对着的那一点就是操作员锁定的目标。
@@ -1346,10 +1349,14 @@ async function poiAnalyze(ox,oy){
 - 只有准星正正落在人身上（头、脸、身体、手、穿着的衣服），才按【人物】分析。
 不确定时，以准星圆圈里面积最大的那个东西为准。
 
+第二步·如果是人，先认出他是谁（画面里常常不止一个人）：
+${cn} 此刻的线索——${clue||"（暂无，按人设判断）"}。
+拿准星下这个人的外形、穿着、姿态、正在做的事，逐条和上面的线索比对：对得上才是 ${cn}；对不上（比如穿着不同、在做的事不同、只是从旁边路过）就是别人——路人、店员、同事、朋友……按看到的样子称呼，NAME 写「路人」「店员」这类，绝不能硬写成 ${cn}。
+
 【人物】严格按此格式输出（只输出这9行）：
 ${knows?"ASSET":"IRRELEVANT"}
 MODE:PERSONNEL
-NAME:[这个人是谁；看得出是 ${cn} 就写 ${cn}，不确定写 未识别]
+NAME:[比对后认定的身份：确认是就写 ${cn}，是别人就写 路人/店员/同事…，拿不准写 未识别]
 STATUS:[清醒/专注/疲惫/睡着…，看得出来的状态]
 ACTIVITY:[此刻正在做什么，只写画面里看得到的]
 LOCATION:[人在房间/场所里的实际位置，如 工位前/沙发上/窗边；不用画面左右上下这类词]
@@ -1369,7 +1376,7 @@ SIGNIFICANCE:[对 ${cn} 的意义]
 ANOMALY:[异常，无则写 无]
 ASSESSMENT:[一句话综合评估]
 
-第一行是机器的分级（决定框的颜色）：物品一律 IRRELEVANT；${cn}${knows?"已经知道自己被监控，写 ASSET":"并不知道自己被监控，写 IRRELEVANT"}；操作员本人（用户）写 ADMIN；别的知道自己被监控的人写 ASSET；持械或有暴力威胁的人写 THREAT；其他普通人写 IRRELEVANT。
+第一行是机器的分级（决定框的颜色）：物品一律 IRRELEVANT；路人等无关的人 IRRELEVANT；${cn}${knows?"已经知道自己被监控，写 ASSET":"并不知道自己被监控，写 IRRELEVANT"}；操作员本人（用户）写 ADMIN；别的知道自己被监控的人写 ASSET；持械或有暴力威胁的人写 THREAT；其他普通人写 IRRELEVANT。
 如果你其实看不到图片（只看到「[图片]」之类的文字、没有真正的画面），只输出一行：NO VISUAL——绝不要凭文字猜。
 只输出分析结果，不解释。冷峻终端风格。`;
   const textPrompt=`分析「${curRoom.name||"房间"}」。CAM:${camLabel(curRoom)} ${hh}:${mm}。监控对象：${cn}（${locInfo}）。
