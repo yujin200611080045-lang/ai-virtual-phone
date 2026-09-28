@@ -74,7 +74,7 @@ import { buildCharacterTimeContext } from "./character-time";
 import { getPromptTimestampOptionsForTimeContext, resolvePromptTimeAware } from "./prompt-time";
 import { kvGet, kvSet, kvRemove, registerKvMigration } from "./kv-db";
 import { stripStateAndInnerForPrompt } from "./prompt-sanitizer";
-import { getInternalCapability, getInternalCapabilitySubToolDefinitions } from "./internal-capability-storage";
+import { OMBRE_MEMORY_CAPABILITY_ID, getInternalCapability, getInternalCapabilitySubToolDefinitions, getInternalCapabilityToolDefinition } from "./internal-capability-storage";
 import { isMediaStoreRef, loadMediaBlob } from "./media-cache-storage";
 import {
     DEFAULT_CHAT_BILINGUAL_PROMPT,
@@ -1763,7 +1763,13 @@ export function formatNativeChatToolResult(result: ToolResult): string {
     ].join("\n");
 }
 
-export function formatNativeLoaderToolResult(label: string): string {
+export function formatNativeLoaderToolResult(label: string, sourceKey?: string): string {
+    // 记忆库：展开时把完整的使用说明（怎么选、关键边界）一并给到模型，函数调用模式下它才看得到
+    if (sourceKey === `internal:${OMBRE_MEMORY_CAPABILITY_ID}`) {
+        const capability = getInternalCapability(OMBRE_MEMORY_CAPABILITY_ID);
+        const guide = capability ? getInternalCapabilityToolDefinition(capability)?.usageGuide : undefined;
+        if (guide) return `已展开「${label}」动作说明。\n\n${formatNativeUsageGuide(guide)}`;
+    }
     return `已展开「${label}」动作说明。`;
 }
 
@@ -2225,7 +2231,7 @@ async function generateNativeChatCompletion(
             if (loader) {
                 expandedSourceIds = touchNativeExpandedToolSource(expandedSourceIds, loader.sourceKey);
                 expandedChanged = true;
-                const content = formatNativeLoaderToolResult(loader.label);
+                const content = formatNativeLoaderToolResult(loader.label, loader.sourceKey);
                 outcomes.push({
                     nativeCall,
                     result: {
