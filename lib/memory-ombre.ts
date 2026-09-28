@@ -46,6 +46,39 @@ export const OMBRE_LIMITS = {
 const SCORE_PINNED = 999;
 const SCORE_FIXED = 50;
 
+// ── 操作日志：谁、什么时候、对哪条记忆做了什么 ──
+
+export type MemoryOpLog = { at: string; op: string; by: string; id?: string; title?: string; detail?: string };
+const LOG_PREFIX = "ai_phone_ombre_log_";
+registerDynamicPrefix(LOG_PREFIX);
+
+export function actorLabel(origin?: string): string {
+    switch (origin) {
+        case "ai_tool": return "角色";
+        case "auto_extract": return "自动提取";
+        case "import": return "导入";
+        case "system": return "系统";
+        case "user":
+        case "user_manual":
+        case "user_edited": return "你";
+        default: return origin || "系统";
+    }
+}
+
+export function loadMemoryLog(characterId: string): MemoryOpLog[] {
+    try { return JSON.parse(kvGet(LOG_PREFIX + characterId) || "[]"); } catch { return []; }
+}
+
+export function logMemoryOp(characterId: string, entry: Omit<MemoryOpLog, "at"> & { at?: string }): void {
+    try {
+        const list = loadMemoryLog(characterId);
+        list.push({ at: entry.at ?? new Date().toISOString(), op: entry.op, by: entry.by, id: entry.id, title: entry.title?.slice(0, 40), detail: entry.detail?.slice(0, 120) });
+        kvSet(LOG_PREFIX + characterId, JSON.stringify(list.slice(-300)));
+    } catch { /* ignore */ }
+}
+
+const labelOf = (e: MemoryEntry) => e.title || e.content.slice(0, 20);
+
 // ── 基础读取 ──
 
 export function memKind(e: MemoryEntry): MemoryKind {
@@ -164,6 +197,7 @@ export async function runOmbreDecayCycle(
             e = { ...e, resolved: true };
             changed = true;
             autoResolved++;
+            logMemoryOp(characterId, { op: "自动结案", by: "系统", id: e.id, title: labelOf(e), detail: "重要度≤4 且 30 天没被想起" });
         }
         // 用户手写的记忆不自动归档
         const manual = e.metadata?.origin === "user_manual";
@@ -171,6 +205,7 @@ export async function runOmbreDecayCycle(
             e = { ...e, metadata: { ...(e.metadata || {}), archived: true, archivedAt: nowIso(), archivedReason: "decay" } };
             changed = true;
             archived++;
+            logMemoryOp(characterId, { op: "沉底归档", by: "系统", id: e.id, title: labelOf(e), detail: `权重 ${ombreScore(original, now).toFixed(2)} 低于 ${threshold}` });
         }
         if (changed) await saveMemoryEntry({ ...e, updatedAt: nowIso() });
     }
@@ -186,6 +221,7 @@ export async function enforceActiveMemoryCap(characterId: string, maxEntries: nu
     const victims = [...entries].sort((a, b) => ombreScore(a, now) - ombreScore(b, now)).slice(0, entries.length - maxEntries);
     for (const e of victims) {
         await saveMemoryEntry({ ...e, updatedAt: nowIso(), metadata: { ...(e.metadata || {}), archived: true, archivedAt: nowIso(), archivedReason: "cap" } });
+        logMemoryOp(characterId, { op: "超上限归档", by: "系统", id: e.id, title: labelOf(e) });
     }
     return victims.length;
 }
@@ -786,11 +822,13 @@ async function mergeOrCreate(characterId: string, draft: MemoryEntry, options: W
         await saveMemoryEntry(merged);
         const idx = all.findIndex((e) => e.id === merged.id);
         if (idx >= 0) all[idx] = merged;
+        logMemoryOp(characterId, { op: "合并", by: actorLabel(options.origin), id: merged.id, title: labelOf(merged), detail: draft.content.slice(0, 80) });
         return { entry: merged, merged: true, mergedInto: target.id };
     }
     const entry: MemoryEntry = { ...draft, embedding };
     await saveMemoryEntry(entry);
     all.push(entry);
+    logMemoryOp(characterId, { op: "新记忆", by: actorLabel(options.origin), id: entry.id, title: labelOf(entry) });
     return { entry, merged: false };
 }
 
@@ -844,6 +882,7 @@ export async function holdMemory(characterId: string, input: HoldInput, options:
                 await saveMemoryEntry({ ...src, digested: true, updatedAt: nowIso(), metadata: { ...(src.metadata || {}), modelValence: entry.valence } });
             }
         }
+        logMemoryOp(characterId, { op: "感受", by: actorLabel(options.origin), id: entry.id, title: labelOf(entry) });
         return { entry, merged: false, note: "feel" };
     }
 
@@ -938,28 +977,66 @@ export async function growMemories(characterId: string, content: string, options
     return writeItems(characterId, items, lines, options);
 }
 
-/** 自动提取（替代一段一总结）：一段对话 → 0~5 条独立记忆，与相似旧记忆合并。 */
+/** 按行切块，每块不超过 maxChars；单行过长时硬切（不丢内容）。 */
+export function chunkText(text: string, maxChars = 9000): string[] {
+    const chunks: string[] = [];
+    let cur = "";
+    for (const rawLine of text.split(/\n/)) {
+        let line = rawLine;
+        while (line.length > maxChars) {
+            if (cur) { chunks.push(cur); cur = ""; }
+            chunks.push(line.slice(0, maxChars));
+            line = line.slice(maxChars);
+        }
+        if (cur.length + line.length + 1 > maxChars && cur) { chunks.push(cur); cur = ""; }
+        cur = cur ? `${cur}\n${line}` : line;
+    }
+    if (cur.trim()) chunks.push(cur);
+    return chunks.filter((c) => c.trim());
+}
+
+/** 自动提取（替代一段一总结）：一段对话 → 每块 0~5 条独立记忆，与相似旧记忆合并。长内容切块逐块提取，不丢前文。 */
 export async function extractFromEvents(
     characterId: string,
     eventsText: string,
-    meta: { earliest: string; latest: string; sourceApp?: MemoryEntry["sourceApp"]; metadata?: Record<string, unknown> },
+    meta: {
+        earliest: string; latest: string; sourceApp?: MemoryEntry["sourceApp"]; metadata?: Record<string, unknown>;
+        origin?: string; onProgress?: (done: number, total: number) => void; signal?: { cancelled: boolean };
+    },
 ): Promise<GrowResult | { error: string }> {
     const me = charName(characterId);
     const her = userName(characterId);
-    const raw = await llm(
-        EXTRACT_PROMPT + perspectiveRule(characterId),
-        `时间跨度：${meta.earliest} 至 ${meta.latest}\n记忆的主人：${me}　对方：${her}\n\n片段：\n${eventsText.slice(-12000)}`,
-        3000,
-    );
-    if (raw === null) return { error: auxApi() ? "提取失败或被截断" : "未配置记忆总结 API（请在绑定配置 → 辅助API绑定中设置）" };
-    const items = parseJsonLoose<DigestItem[]>(raw);
-    if (!Array.isArray(items)) return { error: "提取结果不是 JSON 数组" };
-    return writeItems(characterId, items.slice(0, 5), null, {
-        sourceApp: meta.sourceApp,
-        origin: "auto_extract",
-        skipAnalyze: true,
-        metadata: { timeSpan: `${meta.earliest} ~ ${meta.latest}`, ...(meta.metadata || {}) },
-    });
+    const chunks = chunkText(eventsText);
+    const total: GrowResult = { created: 0, merged: 0, plans: 0, entries: [] };
+    const preloaded = await loadMemoryEntries(characterId);
+    let failures = 0;
+    for (let i = 0; i < chunks.length; i++) {
+        if (meta.signal?.cancelled) break;
+        meta.onProgress?.(i, chunks.length);
+        const raw = await llm(
+            EXTRACT_PROMPT + perspectiveRule(characterId),
+            `时间跨度：${meta.earliest} 至 ${meta.latest}${chunks.length > 1 ? `（第 ${i + 1}/${chunks.length} 段）` : ""}\n记忆的主人：${me}　对方：${her}\n\n片段：\n${chunks[i]}`,
+            3000,
+        );
+        if (raw === null) {
+            if (!auxApi()) return { error: "未配置记忆总结 API（请在绑定配置 → 辅助API绑定中设置）" };
+            failures++;
+            continue;
+        }
+        const items = parseJsonLoose<DigestItem[]>(raw);
+        if (!Array.isArray(items)) { failures++; continue; }
+        const r = await writeItems(characterId, items.slice(0, 5), null, {
+            sourceApp: meta.sourceApp,
+            origin: meta.origin ?? "auto_extract",
+            skipAnalyze: true,
+            preloaded,
+            metadata: { timeSpan: `${meta.earliest} ~ ${meta.latest}`, ...(meta.metadata || {}) },
+        });
+        total.created += r.created; total.merged += r.merged; total.plans += r.plans; total.entries.push(...r.entries);
+    }
+    meta.onProgress?.(chunks.length, chunks.length);
+    if (failures > 0 && failures === chunks.length) return { error: "提取失败或被截断" };
+    return total;
 }
 
 // ── plan ──
@@ -996,6 +1073,7 @@ export async function writePlan(
     };
     await saveMemoryEntry(entry);
     all.push(entry);
+    logMemoryOp(characterId, { op: "计划", by: actorLabel(options.origin), id: entry.id, title: labelOf(entry) });
     return { entry, created: true };
 }
 
@@ -1021,6 +1099,7 @@ async function checkPlanResolution(characterId: string, fresh: MemoryEntry, all:
                 updatedAt: nowIso(),
                 resolutionSuggestion: { byId: fresh.id, confidence: Number(j.confidence), reason: j.reason, at: nowIso() },
             });
+            logMemoryOp(characterId, { op: "计划可能已完成", by: "系统", id: plan.id, title: labelOf(plan), detail: j.reason });
         }
     }
 }
@@ -1034,7 +1113,7 @@ export type TracePatch = {
     status?: "active" | "done" | "dropped"; whyRemembered?: string; meaning?: string; reinforce?: boolean;
 };
 
-export async function traceMemory(characterId: string, id: string, patch: TracePatch): Promise<{ entry: MemoryEntry; changes: string[] }> {
+export async function traceMemory(characterId: string, id: string, patch: TracePatch, by: string = "ai_tool"): Promise<{ entry: MemoryEntry; changes: string[] }> {
     const all = await loadMemoryEntries(characterId);
     const found = findExisting(all, id);
     if (!found) throw new Error(`找不到这条记忆：${id}`);
@@ -1102,12 +1181,13 @@ export async function traceMemory(characterId: string, id: string, patch: TraceP
     if (contentChanged) e.embedding = (await embedForStorage(e.content)) ?? e.embedding;
     e.updatedAt = nowIso();
     await saveMemoryEntry(e);
+    if (changes.length) logMemoryOp(characterId, { op: "修改", by: actorLabel(by), id: e.id, title: labelOf(e), detail: changes.join("、") });
     return { entry: e, changes };
 }
 
 // ── anchor / release ──
 
-export async function anchorMemory(characterId: string, id: string, reason?: string): Promise<MemoryEntry> {
+export async function anchorMemory(characterId: string, id: string, reason?: string, by: string = "ai_tool"): Promise<MemoryEntry> {
     const all = await loadMemoryEntries(characterId);
     const e = findExisting(all, id);
     if (!e) throw new Error(`找不到这条记忆：${id}`);
@@ -1115,10 +1195,11 @@ export async function anchorMemory(characterId: string, id: string, reason?: str
     if (countActive(all, (x) => Boolean(x.anchored)) >= OMBRE_LIMITS.maxAnchors) throw new Error(`锚点已满 ${OMBRE_LIMITS.maxAnchors} 个，先 release 一个`);
     const next: MemoryEntry = { ...e, anchored: true, updatedAt: nowIso(), metadata: { ...(e.metadata || {}), anchorReason: reason || undefined, anchoredAt: nowIso() } };
     await saveMemoryEntry(next);
+    logMemoryOp(characterId, { op: "设锚点", by: actorLabel(by), id: next.id, title: labelOf(next), detail: reason });
     return next;
 }
 
-export async function releaseAnchor(characterId: string, id: string): Promise<MemoryEntry> {
+export async function releaseAnchor(characterId: string, id: string, by: string = "ai_tool"): Promise<MemoryEntry> {
     const all = await loadMemoryEntries(characterId);
     const e = findExisting(all, id);
     if (!e) throw new Error(`找不到这条记忆：${id}`);
@@ -1126,6 +1207,7 @@ export async function releaseAnchor(characterId: string, id: string): Promise<Me
     delete meta.anchorReason; delete meta.anchoredAt;
     const next: MemoryEntry = { ...e, anchored: undefined, updatedAt: nowIso(), metadata: meta };
     await saveMemoryEntry(next);
+    logMemoryOp(characterId, { op: "取消锚点", by: actorLabel(by), id: next.id, title: labelOf(next) });
     return next;
 }
 
@@ -1157,7 +1239,7 @@ export async function feelSearch(characterId: string, query: string, limit = 8):
 
 export async function writeLetter(
     characterId: string,
-    input: { content: string; title?: string; to?: string; lock?: "none" | "timed" | "permanent"; unlockDate?: string },
+    input: { content: string; title?: string; to?: string; from?: "character" | "user"; lock?: "none" | "timed" | "permanent"; unlockDate?: string },
     options: WriteOptions = {},
 ): Promise<MemoryEntry> {
     const content = input.content.trim();
@@ -1185,9 +1267,10 @@ export async function writeLetter(
         activationCount: 0,
         dontSurface: true,
         letterLock: { type: lock, ...(unlockAt ? { unlockAt } : {}) },
-        metadata: { origin: options.origin ?? "ai_tool", ...(input.to ? { letterTo: input.to } : {}), ...(options.metadata || {}) },
+        metadata: { origin: options.origin ?? "ai_tool", letterFrom: input.from ?? "character", ...(input.to ? { letterTo: input.to } : {}), ...(options.metadata || {}) },
     };
     await saveMemoryEntry(entry);
+    logMemoryOp(characterId, { op: input.from === "user" ? "收到你的信" : "写信", by: actorLabel(options.origin), id: entry.id, title: entry.title, detail: lock !== "none" ? (lock === "permanent" ? "永久封存" : `定时锁 ${input.unlockDate}`) : undefined });
     return entry;
 }
 
@@ -1249,6 +1332,7 @@ export async function writeSelfCandidate(
         metadata: { origin: options.origin ?? "ai_tool" },
     };
     await saveMemoryEntry(entry);
+    logMemoryOp(characterId, { op: "自我认识候选", by: actorLabel(options.origin), id: entry.id, title: labelOf(entry), detail: aspect });
     return entry;
 }
 
@@ -1287,6 +1371,7 @@ export async function dreamReport(characterId: string): Promise<string> {
         .filter((e) => now - new Date(lastActiveOf(e)).getTime() <= windowMs || now - new Date(e.createdAt).getTime() <= windowMs)
         .sort((a, b) => ombreScore(b, now) - ombreScore(a, now))
         .slice(0, 40);
+    logMemoryOp(characterId, { op: "做梦", by: "角色" });
     const parts: string[] = [];
     parts.push(`=== 🌙 做梦 · ${today} ===\n这是我自己的记忆，没人催我。慢慢翻，挑真正有感觉的消化。`);
 
@@ -1353,6 +1438,7 @@ export async function dreamReport(characterId: string): Promise<string> {
             const up: MemoryEntry = { ...c, selfWitnessDates: seen, selfStatus: "promoted", updatedAt: nowIso() };
             await saveMemoryEntry(up);
             promoted.push(up);
+            logMemoryOp(characterId, { op: "自我认识确认", by: "系统", id: up.id, title: labelOf(up), detail: `${seen.length} 个日子都还认同` });
             if (c.supersedes) {
                 const old = findExisting(all, c.supersedes);
                 if (old) await saveMemoryEntry({ ...old, selfStatus: "superseded", updatedAt: nowIso() });

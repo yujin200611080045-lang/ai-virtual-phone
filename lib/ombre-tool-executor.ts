@@ -205,7 +205,8 @@ export async function executeOmbreMemoryTool(call: ToolCall, context?: ToolExecu
                     return readResult(name, letters.map((e) => {
                         const lock = e.letterLock?.type ?? "none";
                         const state = lock === "permanent" ? "🔒永久封存" : lock === "timed" && !letterIsReadable(e) ? `⏳${(e.letterLock?.unlockAt || "").slice(0, 10)} 才能拆` : "可读";
-                        return `[${e.createdAt.slice(0, 10)} · id:${e.id}] ${e.title}（${state}）`;
+                        const from = e.metadata?.letterFrom === "user" ? "她写给你的 · " : "";
+                        return `[${e.createdAt.slice(0, 10)} · id:${e.id}] ${e.title}（${from}${state}）`;
                     }).join("\n"), "翻了翻信");
                 }
                 const letter = letters.find((e) => e.id === id || e.id.endsWith(id));
@@ -214,7 +215,8 @@ export async function executeOmbreMemoryTool(call: ToolCall, context?: ToolExecu
                     const lock = letter.letterLock?.type;
                     return readResult(name, lock === "permanent" ? `「${letter.title}」永久封存着，不拆。` : `「${letter.title}」要到 ${(letter.letterLock?.unlockAt || "").slice(0, 10)} 才能拆。`, "这封信还没到拆的时候");
                 }
-                return readResult(name, `「${letter.title}」 ${letter.createdAt.slice(0, 10)}\n\n${letter.content}`, `读信：${letter.title}`);
+                const from = letter.metadata?.letterFrom === "user" ? "（她写给你的）" : "";
+                return readResult(name, `「${letter.title}」${from} ${letter.createdAt.slice(0, 10)}\n\n${letter.content}`, `读信：${letter.title}`);
             }
             case "letter_lock_update": {
                 const id = str(a.id) ?? str(a.bucket_id);
