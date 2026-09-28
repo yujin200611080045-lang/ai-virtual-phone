@@ -128,13 +128,13 @@ type LtFilter = "all" | "core" | "pinned" | "dynamic" | "feel" | "plan" | "lette
 const LT_FILTERS: Array<{ key: LtFilter; label: string }> = [
     { key: "all", label: "全部" },
     { key: "core", label: "核心记忆" },
-    { key: "pinned", label: "核心准则" },
+    { key: "pinned", label: "📌 核心准则" },
     { key: "dynamic", label: "记忆" },
     { key: "feel", label: "感受" },
     { key: "plan", label: "计划" },
     { key: "letter", label: "信" },
     { key: "i", label: "自我认识" },
-    { key: "anchored", label: "锚点" },
+    { key: "anchored", label: "⚓ 锚点" },
     { key: "resolved", label: "已放下" },
     { key: "archived", label: "归档" },
 ];
@@ -810,10 +810,10 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                 <div className="mem-report-actions">
                                     {type === "long_term" && (
                                         <span style={{ display: "inline-flex", gap: 4 }}>
-                                            {entry.pinned && <span style={tag}>核心准则</span>}
-                                            {entry.anchored && <span style={tag}>锚点</span>}
-                                            {entry.protected && <span style={tag}>受保护</span>}
-                                            {entry.resolved && <span style={tag}>已放下</span>}
+                                            {entry.pinned && <span style={tag}>📌 核心准则</span>}
+                                            {entry.anchored && <span style={tag}>⚓ 锚点</span>}
+                                            {entry.protected && <span style={tag}>🛡 受保护</span>}
+                                            {entry.resolved && <span style={tag}>✓ 已放下</span>}
                                             {memKind(entry) !== "dynamic" && <span style={tag}>{KIND_LABEL[memKind(entry)]}</span>}
                                         </span>
                                     )}
@@ -992,9 +992,9 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                         {entry.whyRemembered && <div className="ts-12" style={{ marginTop: 8 }}>为什么记得：{entry.whyRemembered}</div>}
                                         {entry.meaning && <div className="ts-12" style={{ marginTop: 4 }}>对我意味着：{entry.meaning}</div>}
                                         {entry.resolutionSuggestion && memKind(entry) === "plan" && (entry.planStatus ?? "active") === "active" && (
-                                            <div className="ts-12" style={{ marginTop: 6 }}>可能已完成（置信 {entry.resolutionSuggestion.confidence.toFixed(2)}）{entry.resolutionSuggestion.reason ? `：${entry.resolutionSuggestion.reason}` : ""}</div>
+                                            <div className="ts-12" style={{ marginTop: 6 }}>🔔 可能已完成（置信 {entry.resolutionSuggestion.confidence.toFixed(2)}）{entry.resolutionSuggestion.reason ? `：${entry.resolutionSuggestion.reason}` : ""}</div>
                                         )}
-                                        {typeof meta.anchorReason === "string" && <div className="ts-12" style={{ marginTop: 4 }}>设为锚点：{meta.anchorReason}</div>}
+                                        {typeof meta.anchorReason === "string" && <div className="ts-12" style={{ marginTop: 4 }}>⚓ {meta.anchorReason}</div>}
                                         {excerpt && (
                                             <details style={{ marginTop: 8 }}>
                                                 <summary className="ts-11 text-secondary">原话</summary>
@@ -1104,7 +1104,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                 const anchorN = active.filter(e => e.anchored).length;
                                 return (
                                     <div className="ts-11 text-secondary" style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 0 10px" }}>
-                                        <span>核心准则 {pinnedN}/{OMBRE_LIMITS.maxPinned}　锚点 {anchorN}/{OMBRE_LIMITS.maxAnchors}　共 {active.length} 条</span>
+                                        <span>📌 {pinnedN}/{OMBRE_LIMITS.maxPinned}　⚓ {anchorN}/{OMBRE_LIMITS.maxAnchors}　共 {active.length} 条</span>
                                         <button
                                             className="ts-11"
                                             style={{ ...ghostBtn, padding: "2px 10px" }}
