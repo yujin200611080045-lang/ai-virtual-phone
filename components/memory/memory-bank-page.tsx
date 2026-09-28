@@ -1013,9 +1013,9 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                 onChange={(e) => setLtSearch(e.target.value)}
                                 placeholder="搜索记忆（内容 / 标题 / 标签）"
                                 className="ts-12"
-                                style={{ width: "100%", padding: "8px 12px", borderRadius: 10, border: "1px solid var(--c-border, rgba(0,0,0,0.1))", background: "var(--c-input, rgba(0,0,0,0.03))", color: "var(--c-text, #333)", margin: "0 0 8px" }}
+                                style={{ flexShrink: 0, width: "100%", padding: "8px 12px", borderRadius: 10, border: "1px solid var(--c-border, rgba(0,0,0,0.1))", background: "var(--c-input, rgba(0,0,0,0.03))", color: "var(--c-text, #333)", margin: "0 0 8px" }}
                             />
-                            <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6, margin: "0 0 4px" }}>
+                            <div style={{ display: "flex", gap: 6, overflowX: "auto", flexShrink: 0, padding: "2px 0 6px", margin: "0 0 4px", scrollbarWidth: "none" }}>
                                 {LT_FILTERS.map(f => {
                                     const n = longTermEntries.filter(e => matchesLtFilter(e, f.key)).length;
                                     if (f.key !== "all" && n === 0) return null;
@@ -1024,7 +1024,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                         <button
                                             key={f.key}
                                             className="ts-11"
-                                            style={{ flexShrink: 0, padding: "4px 10px", borderRadius: 999, border: "1px solid var(--c-border, rgba(0,0,0,0.1))", background: on ? "var(--c-text, #333)" : "transparent", color: on ? "var(--c-bg, #fff)" : "var(--c-text-secondary, #888)" }}
+                                            style={{ flexShrink: 0, whiteSpace: "nowrap", lineHeight: 1.4, padding: "4px 10px", borderRadius: 999, border: "1px solid var(--c-border, rgba(0,0,0,0.1))", background: on ? "var(--c-text, #333)" : "transparent", color: on ? "var(--c-bg, #fff)" : "var(--c-text-secondary, #888)" }}
                                             onClick={() => setLtFilter(f.key)}
                                         >
                                             {f.label} {n}
@@ -1037,7 +1037,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                 const pinnedN = active.filter(e => e.pinned).length;
                                 const anchorN = active.filter(e => e.anchored).length;
                                 return (
-                                    <div className="ts-11 text-secondary" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 0 10px" }}>
+                                    <div className="ts-11 text-secondary" style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 0 10px" }}>
                                         <span>📌 {pinnedN}/{OMBRE_LIMITS.maxPinned}　⚓ {anchorN}/{OMBRE_LIMITS.maxAnchors}　活跃 {active.length}</span>
                                         <button
                                             className="ts-11 text-secondary"
