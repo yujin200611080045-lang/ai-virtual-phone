@@ -437,7 +437,7 @@
   <div class="mask" id="mApi">
     <div class="sheet">
       <h2>接口配置</h2>
-      <div class="hint">填你自己的站子（OpenAI 兼容）。填了之后，识别就直连你的模型、我全程控提示词——不走宿主那条带人设的通道。截图识别需要模型带视觉。留空则用小手机自带的模型。</div>
+      <div class="hint">课程表的 AI 识别只走这里填的接口（OpenAI 兼容）：粘贴文字、PDF、截图、作息时间、从聊天里记作业都用它。截图识别需要模型能看图。</div>
       <div class="field"><label>Base URL</label><input id="cBase" placeholder="https://xxx.com  或  https://xxx.com/v1"></div>
       <div class="field"><label>API Key</label><input id="cKey" type="password" placeholder="sk-..."></div>
       <div class="field">
@@ -885,7 +885,8 @@ $("#impRun").onclick = async ()=>{
 const FIELDS = `每个元素字段：name(课程名), day(1-7对应周一到周日,数字), start(开始第几节,数字), end(结束第几节,数字), loc(地点,没有就空串), weeks(周次,如"1-16"或"3-16"或"单周",没有就空串)。注意：一门课常常连上2节甚至更多，start 和 end 要覆盖它占的整段（例如1-2节的课 start=1、end=2），不要只填一节；周次一定要抠准，"3-16周"就填"3-16"。`;
 const SYS = "你是课表OCR解析器。只输出一个JSON数组：第一个字符必须是 [ ，最后一个字符必须是 ] 。禁止任何解释、寒暄、开场白、markdown代码块。看不清的课就跳过，绝不编造。";
 
-/* ---------- 自定义接口（OpenAI 兼容），配了就绕开宿主 ---------- */
+/* ---------- 自填接口（OpenAI 兼容）：课程表所有 AI 识别只走这里，不用小手机的模型 ---------- */
+async function needCfg(){ const c=await getCfg(); if(!hasCfg(c)) throw new Error("先在 设置 › 接口配置 里填好你的接口"); return c; }
 let _cfg, _cfgId;
 async function getCfg(){
   if(_cfg!==undefined) return _cfg;
@@ -950,34 +951,21 @@ async function aiParseText(raw){
     { role:"system", content:SYS },
     { role:"user", content:`把下面课表文本解析成 JSON 数组。${FIELDS}\n课表文本：\n"""${raw}"""` }
   ];
-  const res = hasCfg(cfg) ? await directLLM(cfg, msgs)
-                          : await api.ai.chat({ timeoutMs:90000, messages:msgs });
+  const res = await directLLM(await needCfg(), msgs);
   return toCourses(res, true);
 }
-/* 用小手机的模型看图：必须挂在 messages[].image 上（ai.chat 会把图丢掉）；
-   带一个只保留「聊天记录」位置的临时配置，去掉人设、预设条目、世界书、正则，模型才会老老实实当解析器吐 JSON */
-async function hostVision(sys, taskText, images){
-  const c=await getCfg(); let b0=boundChars(c)[0]||{}; let cid=b0.id, cname=b0.name||"";
-  if(!cid){ try{ const cs=await api.characters.list(); const f=(cs?.items||cs||[])[0]; cid=f&&f.id; cname=(f&&(f.name||f.title))||""; }catch(_){} }
-  _visionVia=cname||"（未知角色）";
-  if(!cid) throw new Error("小手机里没有角色，没法借用它的看图接口");
-  const msgs=images.slice(0,4).map((url,i)=>({ role:"user", content:i===0?taskText:"（同一张的续图）", image:url }));
-  const promptProfile={ id:"timetable_parse", label:"课表识别", include:["chatHistory","shortTermMemory"], history:"default", enableWorldBooks:false, enableRegexes:false };
-  return await api.ai.generate({ characterId:cid, instruction:sys+"\n"+taskText+"\n如果你其实看不到任何图片（只看到「[图片]」这类文字），只输出：NO_IMAGE", messages:msgs, promptProfile });
-}
-let _visionVia="";
 /* 识别不出来时，用弹框把原因和模型原话摆出来（toast 太短看不全） */
 function showParseFail(text){ const raw=String(text||"").trim();
   const noImg=/NO_IMAGE|\[图片\]|看不到.{0,6}图|没有.{0,4}(看到|收到).{0,4}图|无法(查看|看到|识别).{0,4}图|未(提供|上传).{0,4}图/.test(raw);
   const why=noImg
-    ? `模型<b>没收到图片</b>。课程表借用的是角色「${esc(_visionVia)}」绑定的接口——去小手机 设置 › API，找到这个角色用的那个接口，把「<b>启用图像识别</b>」打开（模型本身也要能看图）。`
+    ? `模型<b>没看到图片</b>——你在 设置 › 接口配置 里填的这个模型可能不支持看图，换一个能看图的模型。`
     : `模型看到了，但没按格式返回课程。下面是它的原话，截给小克看：`;
   let m=document.getElementById("mParseFail"); if(!m){ m=document.createElement("div"); m.id="mParseFail"; m.className="mask"; document.body.appendChild(m); m.addEventListener("click",e=>{ if(e.target===m) m.classList.remove("on"); }); }
   m.innerHTML=`<div class="sheet"><h2>识别出 0 节课</h2><div class="hint" style="line-height:1.8">${why}</div><div style="max-height:40vh;overflow:auto;font-size:12.5px;white-space:pre-wrap;word-break:break-all;background:rgba(0,0,0,.05);border-radius:10px;padding:10px">${esc(raw.slice(0,1500))||"（空）"}</div><div class="acts"><button class="btn primary" onclick="this.closest('.mask').classList.remove('on')">知道了</button></div></div>`;
   m.classList.add("on"); }
 async function aiParseImages(images){
-  const cfg = await getCfg();
-  if(hasCfg(cfg)){
+  const cfg = await needCfg();
+  {
     // 直连你自己的视觉站子：OpenAI 多模态格式，我控提示词 → 干净 JSON
     const content = [{ type:"text", text:`解析这张课表图，把每一节课变成数组的一个元素。${FIELDS}` }];
     images.forEach(u=> content.push({ type:"image_url", image_url:{ url:u } }));
@@ -987,9 +975,6 @@ async function aiParseImages(images){
     ]);
     return toCourses(res, true);
   }
-  // 没单独配接口 → 用小手机的模型看图
-  const res = await hostVision(SYS, `解析这张课表图，把每一节课变成数组的一个元素。${FIELDS}`, images);
-  return toCourses(res, true);
 }
 /* ---------- 识别“节次时间/作息表” ---------- */
 const T_FIELDS = `输出一个JSON数组，按节次从早到晚排序，每个元素形如 {"p":节次序号数字从1开始,"s":"上课时间HH:MM","e":"下课时间HH:MM"}。有几节就输出几节，时间用24小时制。`;
@@ -1008,7 +993,7 @@ function timesToLines(res, debug){
   return rows.map(r=>`${r.s}-${r.e}`);
 }
 async function aiParseTimesImages(images){
-  const cfg=await getCfg();
+  const cfg=await needCfg();
   const userText=`识别这张作息/时间表图里每一节课的上课和下课时间。${T_FIELDS}`;
   if(hasCfg(cfg)){
     const content=[{type:"text",text:userText}];
@@ -1016,15 +1001,11 @@ async function aiParseTimesImages(images){
     const res=await directLLM(cfg,[{role:"system",content:T_SYS},{role:"user",content}]);
     return timesToLines(res,true);
   }
-  const msgs=images.map((url,i)=>({ role:"user", content:i===0?userText:"（同一张的续图）", image:url }));
-  let res;
-  res=await hostVision(T_SYS, (msgs[0]&&msgs[0].content)||"", msgs.map(m=>m.image).filter(Boolean));
-  return timesToLines(res,true);
 }
 async function aiParseTimesText(raw){
   const cfg=await getCfg();
   const msgs=[{role:"system",content:T_SYS},{role:"user",content:`把下面作息时间文字解析成JSON数组。${T_FIELDS}\n文字：\n"""${raw}"""`}];
-  const res=hasCfg(cfg)?await directLLM(cfg,msgs):await api.ai.chat({timeoutMs:90000,messages:msgs});
+  const res=await directLLM(await needCfg(),msgs);
   return timesToLines(res,true);
 }
 /* ---------- 说一句话记作业（自然语言 → 任务） ---------- */
@@ -1039,7 +1020,7 @@ async function aiParseTasksText(raw, fromChat){
     { role:"system", content:TK_SYS },
     { role:"user", content:`从下面这段话里提取用户明确交代的作业/任务，整理成JSON数组。${fields}${guard}\n话：\n"""${raw}"""` }
   ];
-  const res = hasCfg(cfg) ? await directLLM(cfg, msgs) : await api.ai.chat({ timeoutMs:60000, messages:msgs });
+  const res = await directLLM(await needCfg(), msgs);
   let text = (res && (res.text || res.content || (res.message&&res.message.content))) || "";
   text = text.replace(/```json/gi,"").replace(/```/g,"").trim();
   const m = text.match(/\[[\s\S]*\]/); let arr;
