@@ -888,18 +888,31 @@ const SYS = "你是课表OCR解析器。只输出一个JSON数组：第一个字
 /* ---------- 自填接口（OpenAI 兼容）：课程表所有 AI 识别只走这里，不用小手机的模型 ---------- */
 async function needCfg(){ const c=await getCfg(); if(!hasCfg(c)) throw new Error("先在 设置 › 接口配置 里填好你的接口"); return c; }
 let _cfg, _cfgId;
+/* 设置只该有一条记录。以前几处同时保存时可能各建一条，读的时候只认第一条，别的设置就像丢了——
+   现在读取时把所有记录合并成一条（有值的优先），多余的删掉；保存也排队，不会再并发新建 */
+let _cfgLoading=null, _cfgSaveQ=Promise.resolve();
 async function getCfg(){
   if(_cfg!==undefined) return _cfg;
-  try{ const l=await api.db.list("config",{limit:1}); const r=(l?.items||l||[])[0]; _cfgId=r&&r.id; _cfg=r?(r.data||r):{}; }
-  catch(e){ _cfg={}; }
-  return _cfg;
+  if(_cfgLoading) return _cfgLoading;
+  _cfgLoading=(async()=>{
+    try{
+      const l=await api.db.list("config",{limit:50}); const items=(l?.items||l||[]);
+      const merged={};
+      for(const r of items){ const d=(r&&(r.data||r))||{}; for(const k of Object.keys(d)){ const cur=merged[k]; if(cur===undefined||cur===null||cur==="") merged[k]=d[k]; } }
+      _cfgId=items[0]&&items[0].id; _cfg=merged;
+      if(items.length>1 && _cfgId){ try{ await api.db.update("config", _cfgId, merged); for(const r of items.slice(1)){ if(r&&r.id) await api.db.delete("config", r.id); } }catch(e){} }
+    }catch(e){ _cfg={}; }
+    return _cfg; })();
+  return _cfgLoading;
 }
 async function saveCfg(patch){
-  const cur = await getCfg();
-  const data = { ...cur, ...patch };
-  if(_cfgId) await api.db.update("config", _cfgId, data);
-  else { const created = await api.db.create("config", data); _cfgId = created && created.id; }
-  _cfg = data; return data;
+  const run=async()=>{
+    const cur = await getCfg();
+    const data = { ...cur, ...patch };
+    if(_cfgId) await api.db.update("config", _cfgId, data);
+    else { const created = await api.db.create("config", data); _cfgId = created && created.id; }
+    _cfg = data; return data; };
+  const p=_cfgSaveQ.then(run,run); _cfgSaveQ=p.catch(()=>{}); return p;
 }
 function hasCfg(c){ return c&&c.base&&c.key&&c.model; }
 function apiEndpoint(base){
