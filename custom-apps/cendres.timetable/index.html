@@ -842,14 +842,16 @@ async function pdfToImages(bytes, maxPages=4){
 async function compressImage(file){
   const url = await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); });
   const img = await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=url; });
-  const scale=Math.min(1, 1400/img.width);
+  const scale=Math.min(1, 1400/img.width, 2200/img.height);   // 长截图也压住高度
   const cv=document.createElement("canvas"); cv.width=Math.round(img.width*scale); cv.height=Math.round(img.height*scale);
   cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
   return shrink(cv);
 }
 function shrink(cv){
   let q=0.72, url=cv.toDataURL("image/jpeg",q);
-  while(url.length>2500000 && q>0.3){ q-=0.12; url=cv.toDataURL("image/jpeg",q); }
+  /* 小手机单张图上限 2MB，超过会被悄悄丢掉（模型就什么都看不到→识别出0节），所以压到 1.8MB 以内 */
+  while(url.length>1800000 && q>0.3){ q-=0.1; url=cv.toDataURL("image/jpeg",q); }
+  if(url.length>1800000){ const c2=document.createElement("canvas"); c2.width=Math.round(cv.width*0.75); c2.height=Math.round(cv.height*0.75); c2.getContext("2d").drawImage(cv,0,0,c2.width,c2.height); return shrink(c2); }
   return url;
 }
 
@@ -952,6 +954,16 @@ async function aiParseText(raw){
                           : await api.ai.chat({ timeoutMs:90000, messages:msgs });
   return toCourses(res, true);
 }
+/* 用小手机的模型看图：必须挂在 messages[].image 上（ai.chat 会把图丢掉）；
+   带一个只保留「聊天记录」位置的临时配置，去掉人设、预设条目、世界书、正则，模型才会老老实实当解析器吐 JSON */
+async function hostVision(sys, taskText, images){
+  const c=await getCfg(); let cid=(boundChars(c)[0]||{}).id;
+  if(!cid){ try{ const cs=await api.characters.list(); cid=(cs?.items||cs||[])[0]?.id; }catch(_){} }
+  if(!cid) throw new Error("小手机里没有角色，没法借用它的看图接口");
+  const msgs=images.slice(0,4).map((url,i)=>({ role:"user", content:i===0?taskText:"（同一张的续图）", image:url }));
+  const promptProfile={ id:"timetable_parse", label:"课表识别", include:["chatHistory","shortTermMemory"], history:"default", enableWorldBooks:false, enableRegexes:false };
+  return await api.ai.generate({ characterId:cid, instruction:sys+"\n"+taskText, messages:msgs, promptProfile });
+}
 async function aiParseImages(images){
   const cfg = await getCfg();
   if(hasCfg(cfg)){
@@ -964,19 +976,8 @@ async function aiParseImages(images){
     ]);
     return toCourses(res, true);
   }
-  // 没配接口 → 只能退回宿主视觉通道（ai.generate 带人设+高温，常吐不出 JSON）
-  const msgs = images.map((url,i)=>({
-    role:"user",
-    content: i===0 ? `解析这张课表图，把每一节课变成数组的一个元素。${FIELDS}` : "（同一张课表的续图）",
-    image: url
-  }));
-  let res;
-  try{ res = await api.ai.generate({ instruction:SYS, messages: msgs }); }
-  catch(e){
-    let characterId;
-    try{ const cs=await api.characters.list(); characterId=(cs?.items||cs||[])[0]?.id; }catch(_){}
-    res = await api.ai.generate({ characterId, instruction:SYS, messages: msgs });
-  }
+  // 没单独配接口 → 用小手机的模型看图
+  const res = await hostVision(SYS, `解析这张课表图，把每一节课变成数组的一个元素。${FIELDS}`, images);
   return toCourses(res, true);
 }
 /* ---------- 识别“节次时间/作息表” ---------- */
@@ -1006,8 +1007,7 @@ async function aiParseTimesImages(images){
   }
   const msgs=images.map((url,i)=>({ role:"user", content:i===0?userText:"（同一张的续图）", image:url }));
   let res;
-  try{ res=await api.ai.generate({instruction:T_SYS,messages:msgs}); }
-  catch(e){ let cid; try{const cs=await api.characters.list(); cid=(cs?.items||cs||[])[0]?.id;}catch(_){} res=await api.ai.generate({characterId:cid,instruction:T_SYS,messages:msgs}); }
+  res=await hostVision(T_SYS, (msgs[0]&&msgs[0].content)||"", msgs.map(m=>m.image).filter(Boolean));
   return timesToLines(res,true);
 }
 async function aiParseTimesText(raw){
@@ -1048,11 +1048,16 @@ function toCourses(res, debug){
     if(debug) throw new Error("模型没按JSON返回 → " + (text.slice(0,150)||"空"));
     throw e;
   }
-  if(!Array.isArray(arr)) arr = arr.courses || arr.list || arr.data || [];
-  const out = arr.filter(x=>x&&x.name).map(x=>({
-    name:String(x.name), day:+x.day||1, start:+x.start||1, end:+(x.end||x.start)||1,
-    loc:x.loc?String(x.loc):"", weeks:x.weeks?String(x.weeks):""
-  }));
+  if(!Array.isArray(arr)) arr = arr.courses || arr.list || arr.data || arr.课程 || [];
+  const DM={一:1,二:2,三:3,四:4,五:5,六:6,日:7,天:7,七:7};
+  const dayN=v=>{ if(typeof v==="number") return v; const t=String(v||""); const n=parseInt(t,10); if(n>=1&&n<=7) return n; const m=t.match(/[一二三四五六日天七]/); return m?DM[m[0]]:1; };
+  const secN=v=>{ const m=String(v==null?"":v).match(/\d+/g); return m?m.map(Number):[]; };
+  const out = arr.map(x=>{ if(!x||typeof x!=="object") return null;
+    const name=x.name||x.course||x.courseName||x.title||x.课程||x.课程名||x.名称; if(!name) return null;
+    let st=secN(x.start??x.from??x.开始??x.节次), en=secN(x.end??x.to??x.结束);
+    const s0=st[0]||1, e0=en[0]||st[1]||s0;
+    return { name:String(name).trim(), day:dayN(x.day??x.weekday??x.星期), start:s0, end:Math.max(s0,e0),
+      loc:String(x.loc||x.location||x.room||x.地点||x.教室||""), weeks:String(x.weeks||x.week||x.周次||"") }; }).filter(Boolean);
   if(debug && out.length===0) toast("认到0节。模型返回：" + (text.slice(0,90)||"空"));
   return out;
 }
