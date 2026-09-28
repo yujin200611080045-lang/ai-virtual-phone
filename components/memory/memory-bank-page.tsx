@@ -1,9 +1,12 @@
 "use client";
 
 import { Component, useState, useEffect, useCallback, type CSSProperties, type ReactNode } from "react";
-import { Trash2, Zap, Clock, Users, Archive, AlertCircle, Search, Brain, FileText, MoreHorizontal, Plus, Edit3, X, Check, ChevronRight, Filter, Pin, Anchor, Shield, Flame, CircleCheck, RotateCcw, Moon, type LucideIcon } from "lucide-react";
+import { Trash2, Zap, Clock, Users, Archive, Wind, Gem, Network, Waves, AlertCircle, Search, Brain, FileText, MoreHorizontal, Plus, Edit3, X, Check, ChevronRight, Filter, Pin, Anchor, Shield, Flame, CircleCheck, RotateCcw, Moon, type LucideIcon } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/modal";
-import { MemoryTimeline } from "./memory-timeline";
+import { MemoryBreathTab } from "./memory-breath-tab";
+import { MemoryTreasureTab } from "./memory-treasure-tab";
+import { MemoryNetworkTab } from "./memory-network-tab";
+import { MemoryStreamTab } from "./memory-stream-tab";
 import { Toggle } from "@/components/ui/form";
 import { loadCharacters } from "@/lib/character-storage";
 import type { Character } from "@/lib/character-types";
@@ -32,6 +35,7 @@ import {
     isArchivedMemory,
     lastActiveOf,
     letterIsReadable,
+    logMemoryOp,
     memKind,
     ombreScore,
     ombreScoreBreakdown,
@@ -46,7 +50,7 @@ import { generateEmbedding, resolveEmbeddingModel, cosineSimilarity } from "@/li
 import { BINDING_ACCENTS } from "@/lib/ui-accent-colors";
 
 type MemoryView = "list" | "detail" | "settings";
-type MemoryTab = "short" | "shared" | "core" | "long";
+type MemoryTab = "breath" | "long" | "treasure" | "network" | "stream";
 type MemoryBudgetKey = "shortTermTokenBudget" | "coreMemoryTokenBudget" | "longTermTokenBudget";
 
 const MEMORY_TOKEN_BUDGET_MAX = 100000;
@@ -119,9 +123,10 @@ const KIND_LABEL: Record<MemoryKind, string> = {
     dynamic: "记忆", permanent: "固化", feel: "感受", plan: "计划", letter: "信", i: "自我认识",
 };
 
-type LtFilter = "all" | "pinned" | "dynamic" | "feel" | "plan" | "letter" | "i" | "anchored" | "resolved" | "archived";
+type LtFilter = "all" | "core" | "pinned" | "dynamic" | "feel" | "plan" | "letter" | "i" | "anchored" | "resolved" | "archived";
 const LT_FILTERS: Array<{ key: LtFilter; label: string }> = [
     { key: "all", label: "全部" },
+    { key: "core", label: "核心记忆" },
     { key: "pinned", label: "📌 核心准则" },
     { key: "dynamic", label: "记忆" },
     { key: "feel", label: "感受" },
@@ -134,6 +139,8 @@ const LT_FILTERS: Array<{ key: LtFilter; label: string }> = [
 ];
 
 function matchesLtFilter(e: MemoryEntry, f: LtFilter): boolean {
+    if (f === "core") return e.type === "core";
+    if (e.type === "core") return false;
     const archived = isArchivedMemory(e);
     if (f === "archived") return archived;
     if (archived) return false;
@@ -263,14 +270,13 @@ type Props = {
 export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }: Props) {
     const [config, setConfig] = useState<MemoryConfig>(loadMemoryConfig);
     const [characters, setCharacters] = useState<CharacterMemoryInfo[]>([]);
-    const [activeTab, setActiveTab] = useState<MemoryTab>("short");
+    const [activeTab, setActiveTab] = useState<MemoryTab>("breath");
     const [ltFilter, setLtFilter] = useState<LtFilter>("all");
     const [ltSort, setLtSort] = useState<"score" | "created">("score");
     const [ltSearch, setLtSearch] = useState("");
     const [coreEntries, setCoreEntries] = useState<MemoryEntry[]>([]);
     const [longTermEntries, setLongTermEntries] = useState<MemoryEntry[]>([]);
-    const [shortTermEvents, setShortTermEvents] = useState<NativeTimelineEntry[]>([]);
-    const [sharedEvents, setSharedEvents] = useState<NativeTimelineEntry[]>([]);
+    const [streamEvents, setStreamEvents] = useState<NativeTimelineEntry[]>([]);
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [summarizing, setSummarizing] = useState(false);
@@ -367,22 +373,26 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
         // Native timeline is sync (localStorage) — no await needed.
         // 只取最近一段（全量可能几万条），防止解析+渲染把 iOS Safari 内存顶爆
         const timeline = loadNativeTimeline(charId).slice(-MEMORY_TIMELINE_ENTRY_CAP);
-        setShortTermEvents(timeline.filter(e =>
-            !(e.sourceApp === "moments" && e.postAuthorType === "user")
-            && !(e.sourceApp === "interview_magazine" && e.sourceDetail === "interview_shared_issue")
-        ));
-        setSharedEvents(timeline.filter(e =>
-            (e.sourceApp === "moments" && e.postAuthorType === "user") ||
-            (e.sourceApp === "chat" && e.sourceDetail === "group") ||
-            (e.sourceApp === "interview_magazine" && e.sourceDetail === "interview_shared_issue")
-        ));
+        setStreamEvents(timeline);
         setLoading(false);
     }, []);
+
+    // 不闪「加载中」的静默刷新（子页面操作后用）
+    const reloadEntries = useCallback(async () => {
+        if (!selectedCharId) return;
+        const [core, lt] = await Promise.all([
+            loadMemoryEntriesByType(selectedCharId, "core"),
+            loadMemoryEntriesByType(selectedCharId, "long_term"),
+        ]);
+        setCoreEntries(core);
+        setLongTermEntries(lt);
+    }, [selectedCharId]);
 
     // Reload detail data when view changes to detail
     useEffect(() => {
         if (view === "detail" && selectedCharId) {
-            setActiveTab("short");
+            setActiveTab("breath");
+            setLtFilter("all");
             setExpandedId(null);
             loadDetailData(selectedCharId);
         }
@@ -401,7 +411,9 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
     };
 
     const handleDeleteEntry = async (id: string) => {
+        const victim = [...coreEntries, ...longTermEntries].find(e => e.id === id);
         await deleteMemoryEntry(id);
+        if (selectedCharId && victim) logMemoryOp(selectedCharId, { op: "删除", by: "你", id, title: victim.title || victim.content.slice(0, 20) });
         setCoreEntries(prev => prev.filter(e => e.id !== id));
         setLongTermEntries(prev => prev.filter(e => e.id !== id));
         setEntryMenuId(null);
@@ -635,6 +647,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                 };
 
             await saveMemoryEntry(entry);
+            logMemoryOp(selectedCharId, { op: source ? "编辑" : "新增", by: "你", id: entry.id, title: entry.title || content.slice(0, 20), detail: type === "core" ? "核心记忆" : KIND_LABEL[entry.kind ?? "dynamic"] });
             if (type === "core") {
                 setCoreEntries(prev => source ? prev.map(item => item.id === entry.id ? entry : item) : [...prev, entry]);
             } else {
@@ -660,7 +673,10 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                 metadata: { ...(entry.metadata || {}), archived: !archived, ...(archived ? {} : { archivedAt: new Date().toISOString(), archivedReason: "manual" }) },
                 updatedAt: new Date().toISOString(),
             });
-            if (selectedCharId) await loadDetailData(selectedCharId);
+            if (selectedCharId) {
+                logMemoryOp(selectedCharId, { op: archived ? "从归档恢复" : "手动归档", by: "你", id: entry.id, title: entry.title || entry.content.slice(0, 20) });
+                await reloadEntries();
+            }
         } catch { /* ignore */ }
     };
 
@@ -668,14 +684,25 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
         if (!selectedCharId) return;
         setEntryMenuId(null);
         try {
-            if (action === "anchor") await anchorMemory(selectedCharId, entry.id);
-            else if (action === "release") await releaseAnchor(selectedCharId, entry.id);
-            else await traceMemory(selectedCharId, entry.id, action);
+            if (action === "anchor") await anchorMemory(selectedCharId, entry.id, undefined, "user");
+            else if (action === "release") await releaseAnchor(selectedCharId, entry.id, "user");
+            else await traceMemory(selectedCharId, entry.id, action, "user");
             showNotice(notice);
-            await loadDetailData(selectedCharId);
+            await reloadEntries();
         } catch (err) {
             showNotice(err instanceof Error ? err.message : String(err));
         }
+    };
+
+    const openEntry = (id: string) => {
+        const target = [...longTermEntries, ...coreEntries].find(e => e.id === id);
+        if (!target) return;
+        setActiveTab("long");
+        setLtSearch("");
+        setLtFilter(target.type === "core" ? "core" : isArchivedMemory(target) ? "archived" : "all");
+        setExpandedId(id);
+        setEntryMenuId(null);
+        setTimeout(() => document.getElementById(`mem-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
     };
 
     const relatedEntries = (entry: MemoryEntry): Array<{ e: MemoryEntry; s: number }> => {
@@ -733,6 +760,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                     entries.map(entry => (
                         <div
                             key={entry.id}
+                            id={`mem-${entry.id}`}
                             className={`g-card memory-report-card${entryMenuId === entry.id ? " is-menu-open" : ""}`}
                             style={{
                                 ...(entry.metadata?.archived ? { opacity: 0.5 } : {}),
@@ -878,8 +906,8 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                 );
                             })()}
                             <div className="ts-12 leading-[1.7]">
-                                {memKind(entry) === "letter" && !letterIsReadable(entry) && expandedId !== entry.id
-                                    ? "（封着的信，点开偷看）"
+                                {memKind(entry) === "letter" && !letterIsReadable(entry)
+                                    ? ((entry.letterLock?.type ?? "none") === "permanent" ? "（永久封存的信）" : `（封着的信，${(entry.letterLock?.unlockAt || "").slice(0, 10)} 才能拆）`)
                                     : expandedId === entry.id
                                     ? entry.content
                                     : entry.content.length > 100
@@ -983,28 +1011,36 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                         <p className="text-center ts-14 mt-10 text-secondary">
                             加载中...
                         </p>
-                    ) : activeTab === "short" ? (
-                        /* ── Short-term: card view ── */
-                        <>
-                            <MemoryTimeline
-                                events={shortTermEvents}
-                                userName={resolveUserIdentity(selectedCharId!)?.name || "用户"}
-                            />
-                        </>
-                    ) : activeTab === "shared" ? (
-                        /* ── Shared events: card view ── */
-                        sharedEvents.length === 0 ? (
-                            <p className="text-center ts-14 mt-10 text-secondary">
-                                暂无共享事件。用户发朋友圈或参与群聊后会自动显示。
-                            </p>
-                        ) : (
-                            <MemoryTimeline
-                                events={sharedEvents}
-                                userName={resolveUserIdentity(selectedCharId!)?.name || "用户"}
-                            />
-                        )
-                    ) : activeTab === "core" ? (
-                        renderMemoryEntries("core", coreEntries, "暂无核心记忆。长期记忆累计到设定条数后会自动提炼，也可以手动新增。")
+                    ) : activeTab === "breath" ? (
+                        <MemoryBreathTab
+                            characterId={selectedCharId!}
+                            entries={longTermEntries}
+                            coreEntries={coreEntries}
+                            config={config}
+                            openEntry={openEntry}
+                        />
+                    ) : activeTab === "treasure" ? (
+                        <MemoryTreasureTab
+                            characterId={selectedCharId!}
+                            characterName={selectedChar.name}
+                            entries={longTermEntries}
+                            reload={reloadEntries}
+                            notice={showNotice}
+                            openEntry={openEntry}
+                        />
+                    ) : activeTab === "network" ? (
+                        <MemoryNetworkTab entries={longTermEntries} openEntry={openEntry} />
+                    ) : activeTab === "stream" ? (
+                        <MemoryStreamTab
+                            characterId={selectedCharId!}
+                            userName={resolveUserIdentity(selectedCharId!)?.name || "用户"}
+                            events={streamEvents}
+                            extracting={summarizing}
+                            onExtractNow={() => void handleManualSummarize("auto")}
+                            reload={reloadEntries}
+                            notice={showNotice}
+                            openEntry={openEntry}
+                        />
                     ) : (
                         /* ── Long-term: Summarized Memories ── */
                         <>
@@ -1017,7 +1053,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                             />
                             <div style={{ display: "flex", gap: 6, overflowX: "auto", flexShrink: 0, padding: "2px 0 6px", margin: "0 0 4px", scrollbarWidth: "none" }}>
                                 {LT_FILTERS.map(f => {
-                                    const n = longTermEntries.filter(e => matchesLtFilter(e, f.key)).length;
+                                    const n = f.key === "core" ? coreEntries.length : longTermEntries.filter(e => matchesLtFilter(e, f.key)).length;
                                     if (f.key !== "all" && n === 0) return null;
                                     const on = ltFilter === f.key;
                                     return (
@@ -1051,6 +1087,10 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                             })()}
                             {(() => {
                                 const q = ltSearch.trim().toLowerCase();
+                                if (ltFilter === "core") {
+                                    const coreList = q ? coreEntries.filter(e => e.content.toLowerCase().includes(q)) : coreEntries;
+                                    return renderMemoryEntries("core", coreList, "暂无核心记忆。长期记忆累计到设定条数后会自动提炼，也可以手动新增。");
+                                }
                                 let list = longTermEntries.filter(e => matchesLtFilter(e, ltFilter));
                                 if (q) {
                                     list = list.filter(e =>
@@ -1073,10 +1113,11 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                 {/* Bottom tab bar — floating above bottom */}
                 <div className="chat-tab-bar" style={{ position: "absolute", bottom: 40, left: 40, right: 40, zIndex: 10, borderRadius: 28, borderTop: "none", padding: "10px 0" }}>
                     {([
-                        { key: "short" as const, icon: Clock, label: "短期" },
-                        { key: "shared" as const, icon: Users, label: "共享事件" },
-                        { key: "long" as const, icon: Archive, label: "长期" },
-                        { key: "core" as const, icon: Archive, label: "核心" },
+                        { key: "breath" as const, icon: Wind, label: "浮现" },
+                        { key: "long" as const, icon: Archive, label: "记忆" },
+                        { key: "treasure" as const, icon: Gem, label: "珍藏" },
+                        { key: "network" as const, icon: Network, label: "网络" },
+                        { key: "stream" as const, icon: Waves, label: "流水" },
                     ]).map(tab => (
                         <button
                             key={tab.key}
@@ -1185,12 +1226,12 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                 {confirmClearAll && (
                     <ConfirmDialog
                         title="确认清除？"
-                        message={activeTab === "core" ? "将清除该角色所有核心记忆，此操作无法恢复。" : "将清除该角色所有长期记忆，此操作无法恢复。"}
+                        message={ltFilter === "core" ? "将清除该角色所有核心记忆，此操作无法恢复。" : "将清除该角色所有长期记忆，此操作无法恢复。"}
                         icon={AlertCircle}
                         variant="danger"
                         confirmLabel="确认清除"
                         onConfirm={() => {
-                            handleClearEntries(activeTab === "core" ? "core" : "long_term");
+                            handleClearEntries(ltFilter === "core" ? "core" : "long_term");
                             setConfirmClearAll(false);
                         }}
                         onCancel={() => setConfirmClearAll(false)}

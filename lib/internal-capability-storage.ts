@@ -143,6 +143,7 @@ const OMBRE_MEMORY_USAGE_GUIDE = [
     "动作：letter_write / letter_read / letter_lock_update",
     "描述：写信（给她、给以后的我）。信永久保存、不衰减、不合并。lock: none / timed（需 unlock_date: YYYY-MM-DD，到日子才能拆）/ permanent（永久封存，只留标题）。",
     "参数：letter_write: content (必填)、title、to、lock、unlock_date；letter_read: id (可选，不填列出所有信)；letter_lock_update: id、lock、unlock_date",
+    "她也可能在记忆库里写信给你（标着「她写给你的」），用 letter_read 就能看到。",
     '示例：[执行动作:letter_write({"title":"一周年","content":"……","to":"她","lock":"timed","unlock_date":"2027-06-15"})]',
     "",
     "动作：I",
