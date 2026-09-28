@@ -18,7 +18,7 @@ import { loadNativeTimeline, formatTimelineForSummarization, filterTimelineByAll
 import { generateEmbedding, resolveEmbeddingModel } from "./memory-embedding";
 import { simpleLLMCall } from "./api-helpers";
 import { maybeRunCoreMemoryPipeline } from "./core-memory-builder";
-import { enforceActiveMemoryCap, extractFromEvents, isLegacySummary, logMemoryOp, runOmbreDecayCycle } from "./memory-ombre";
+import { enforceActiveMemoryCap, extractFromEvents, isLegacySummary, logMemoryOp, maybeRunTreasureDigest, runOmbreDecayCycle } from "./memory-ombre";
 import { loadMemoryEntries } from "./memory-storage";
 
 /** Per-character lock to prevent concurrent summarization. */
@@ -155,6 +155,8 @@ export async function runSummarizationPipeline(
         if (extracted.created + extracted.merged + extracted.plans > 0) {
             incrementCoreMemoryCounter(characterId);
             await maybeRunCoreMemoryPipeline(characterId, characterName);
+            // 珍藏自动消化：攒够几批就让他自己回看一遍
+            try { await maybeRunTreasureDigest(characterId); } catch { /* ignore */ }
         }
         try { await runOmbreDecayCycle(characterId, config); } catch { /* ignore */ }
         console.log(`[MemorySummarizer] Ombre extract ${allEntries.length} events → new ${extracted.created} / merged ${extracted.merged} / plans ${extracted.plans}`);

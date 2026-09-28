@@ -54,6 +54,9 @@ export type MemoryConfig = {
     autoResolveEnabled?: boolean;           // Ombre 自动结案：importance≤4 且 30 天未激活 → resolved
     ombreExtractionEnabled?: boolean;       // Ombre 拆条：每段对话提取 0~5 条独立记忆并与相似旧记忆合并（关掉则回到一段一总结）
     breathMaxResults?: number;              // 每次浮现的记忆条数上限（不含核心准则，默认 20）
+    autoDigestEnabled?: boolean;            // 珍藏自动消化：每攒几批新记忆，角色自己回看一遍，决定钉准则/设锚点/写感受/放下/认识自己
+    digestInterval?: number;                // 每 N 批新记忆消化一次（默认 3）
+    digestPrompt?: string;                  // 消化提示词（留空 = 默认）
     autoBuildCoreEnabled: boolean;          // whether core memories rebuild after long-term summarization
     vectorRecallEnabled: boolean;           // whether vector embedding recall is used for memory retrieval
     maxLongTermEntries: number;
@@ -149,6 +152,8 @@ export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
     autoResolveEnabled: true,
     ombreExtractionEnabled: true,
     breathMaxResults: 20,
+    autoDigestEnabled: true,
+    digestInterval: 3,
     autoBuildCoreEnabled: true,
     vectorRecallEnabled: true,
     maxLongTermEntries: 500,

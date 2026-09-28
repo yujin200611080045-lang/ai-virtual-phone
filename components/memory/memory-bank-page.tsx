@@ -35,6 +35,7 @@ import {
     isArchivedMemory,
     isLegacySummary,
     DEFAULT_EXTRACTION_PROMPT,
+    DEFAULT_DIGEST_PROMPT,
     lastActiveOf,
     letterIsReadable,
     logMemoryOp,
@@ -288,6 +289,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
     const [editingPrompt, setEditingPrompt] = useState<string | null>(null);
     const [editingCorePrompt, setEditingCorePrompt] = useState<string | null>(null);
     const [editingExtraction, setEditingExtraction] = useState<string | null>(null);
+    const [editingDigest, setEditingDigest] = useState<string | null>(null);
     const [confirmDeleteEntryId, setConfirmDeleteEntryId] = useState<string | null>(null);
     const [confirmClearAll, setConfirmClearAll] = useState(false);
     const [pickedCharId, setPickedCharId] = useState<string | null>(null);
@@ -409,6 +411,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
             setEditingPrompt(null);
             setEditingCorePrompt(null);
             setEditingExtraction(null);
+            setEditingDigest(null);
         }
     }, [view]);
 
@@ -1564,6 +1567,97 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                         }}
                     />
                 </div>
+
+                {/* 珍藏自动消化 */}
+                {(() => {
+                    const saved = config.digestPrompt?.trim() || DEFAULT_DIGEST_PROMPT;
+                    const current = editingDigest ?? saved;
+                    const modified = current !== saved;
+                    const isDef = saved === DEFAULT_DIGEST_PROMPT;
+                    return (
+                        <>
+                            <p className="menu-group-desc mx-2">珍藏自动消化</p>
+                            <div className="menu-group">
+                                <div className="menu-item">
+                                    <MemorySettingsIcon icon={Gem} color={BINDING_ACCENTS.embedding} />
+                                    <div className="menu-label-group">
+                                        <span className="menu-label">让珍藏自己长</span>
+                                        <span className="menu-desc">每攒几批新记忆，角色用自己的口吻回看一遍：钉核心准则、设锚点、写感受、放下旧事、确认计划、认识自己。原版的「做梦」是手动的，这里替他定时做</span>
+                                    </div>
+                                    <div className="menu-right">
+                                        <Toggle checked={config.autoDigestEnabled ?? true} onChange={(v) => {
+                                            const next = { ...config, autoDigestEnabled: v };
+                                            setConfig(next);
+                                            saveMemoryConfig(next);
+                                        }} />
+                                    </div>
+                                </div>
+                                <MemorySettingsSliderItem
+                                    icon={Clock}
+                                    color={BINDING_ACCENTS.api}
+                                    label="消化间隔"
+                                    desc="每攒够 N 批新记忆，自动消化一次"
+                                    value={config.digestInterval ?? 3}
+                                    min={1}
+                                    max={10}
+                                    step={1}
+                                    onChange={value => {
+                                        const next = { ...config, digestInterval: Math.min(10, Math.max(1, Math.round(value))) };
+                                        setConfig(next);
+                                        saveMemoryConfig(next);
+                                    }}
+                                />
+                                <div className="menu-item">
+                                    <MemorySettingsIcon icon={FileText} color={BINDING_ACCENTS.preset} />
+                                    <div className="menu-label-group">
+                                        <span className="menu-label">消化提示词</span>
+                                        <span className="menu-desc">
+                                            变量：{"{{char}}"} 角色、{"{{user}}"} 你、{"{{persona}}"} 人设、{"{{material}}"} 最近的记忆和珍藏。要求输出 JSON，字段名别改
+                                        </span>
+                                    </div>
+                                    {!isDef && (
+                                        <div className="menu-right">
+                                            <button
+                                                onClick={() => {
+                                                    setEditingDigest(null);
+                                                    const next = { ...config, digestPrompt: "" };
+                                                    setConfig(next);
+                                                    saveMemoryConfig(next);
+                                                    showNotice("已恢复默认消化提示词");
+                                                }}
+                                                className="menu-label menu-label-danger ts-12 underline"
+                                            >
+                                                恢复默认
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="px-4 pb-4 flex flex-col gap-3">
+                                    <textarea
+                                        value={current}
+                                        onChange={e => setEditingDigest(e.target.value)}
+                                        className="ui-textarea w-full min-h-[200px] ts-14 leading-relaxed resize-y"
+                                    />
+                                    {modified && (
+                                        <button
+                                            onClick={() => {
+                                                const text = current.trim();
+                                                const next = { ...config, digestPrompt: text === DEFAULT_DIGEST_PROMPT ? "" : text };
+                                                setConfig(next);
+                                                saveMemoryConfig(next);
+                                                setEditingDigest(null);
+                                                showNotice("消化提示词已保存");
+                                            }}
+                                            className="ui-btn ui-btn-primary p-2.5 w-full"
+                                        >
+                                            <Zap size={14} className="mr-1.5" /> 保存提词配置
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </>
+                    );
+                })()}
 
                 {/* Token budget sliders */}
                 <p className="menu-group-desc mx-2">控制截断量</p>

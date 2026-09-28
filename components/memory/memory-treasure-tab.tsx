@@ -3,7 +3,7 @@
 // 珍藏：计划 / 信 / 锚点 / 自我认识 / 感受（对应 Ombre 后台的 Plans / Letters / Anchors + I + feel）
 
 import { useState } from "react";
-import { Mail, MailOpen, Lock, Hourglass, Plus, X, Check, Anchor } from "lucide-react";
+import { Mail, MailOpen, Lock, Hourglass, Plus, X, Check, Anchor, Moon } from "lucide-react";
 import type { MemoryEntry } from "@/lib/memory-types";
 import {
     OMBRE_LIMITS,
@@ -11,6 +11,7 @@ import {
     letterIsReadable,
     memKind,
     releaseAnchor,
+    runTreasureDigest,
     traceMemory,
     writeLetter,
     writePlan,
@@ -57,6 +58,24 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
     const [letterDraft, setLetterDraft] = useState<{ title: string; content: string; lock: "none" | "timed" | "permanent"; date: string } | null>(null);
     const [reading, setReading] = useState<MemoryEntry | null>(null);
     const [busy, setBusy] = useState(false);
+    const [digesting, setDigesting] = useState(false);
+
+    const digest = async () => {
+        if (digesting) return;
+        setDigesting(true);
+        try {
+            const r = await runTreasureDigest(characterId);
+            if (r.error) { notice(r.error); return; }
+            const parts = [
+                r.feels && `写下 ${r.feels} 份感受`, r.pins && `钉了 ${r.pins} 条核心准则`, r.anchors && `设了 ${r.anchors} 个锚点`,
+                r.resolved && `放下 ${r.resolved} 件事`, r.plansDone && `确认完成 ${r.plansDone} 个计划`, r.selves && `多了 ${r.selves} 条自我认识`,
+            ].filter(Boolean);
+            notice(parts.length ? `${characterName}整理完了：${parts.join("，")}` : `${characterName}看了一遍，这次没有要动的`);
+            await reload();
+        } finally {
+            setDigesting(false);
+        }
+    };
 
     const live = entries.filter(e => !isArchivedMemory(e));
     const plans = live.filter(e => memKind(e) === "plan");
@@ -84,6 +103,14 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingBottom: 130 }}>
+            <div style={{ ...card, display: "flex", alignItems: "center", gap: 10 }}>
+                <span className="ts-12 text-secondary" style={{ flex: 1, lineHeight: 1.6 }}>
+                    珍藏会自己长：每攒几批新记忆，{characterName}会回看一遍，自己决定钉什么、锚什么、写下什么感受、放下什么。
+                </span>
+                <button className="ts-12" style={{ ...btn, flexShrink: 0 }} disabled={digesting} onClick={() => void digest()}>
+                    <Moon size={12} /> {digesting ? "整理中…" : "让他整理一下"}
+                </button>
+            </div>
             <div style={{ display: "flex", gap: 6, overflowX: "auto", flexShrink: 0, paddingBottom: 2, scrollbarWidth: "none" }}>
                 {sections.map(s => (
                     <button key={s.key} className="ts-12" style={pill(section === s.key)} onClick={() => setSection(s.key)}>{s.label} {s.n}</button>
