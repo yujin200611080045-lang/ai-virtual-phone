@@ -321,7 +321,6 @@
         <button class="item" id="sImport"><span class="ic">⇩</span>导入课程表<span class="sub">粘贴 / 截图</span></button>
         <button class="item" id="sApi"><span class="ic">⚙︎</span>接口配置<span class="sub" id="sApiState">未配置</span></button>
         <button class="item" id="sBind"><span class="ic">◔</span>绑定角色<span class="sub" id="sBindState">未绑定</span></button>
-        <button class="item" id="sQuick"><span class="ic">✎</span>说一句话记作业<span class="sub">AI 自动归类</span></button>
         <button class="item" id="sPull"><span class="ic">↧</span>从对话抓取作业<span class="sub">打开自动 · 可手动</span></button>
         <button class="item" id="sWeek"><span class="ic">◵</span>学期第一周<span class="sub" id="sWeekState">未设置</span></button>
         <button class="item" id="sTimes"><span class="ic">◷</span>节次时间<span class="sub" id="sTimesState">默认</span></button>
@@ -377,21 +376,6 @@
       <div class="acts">
         <button class="btn" id="diagClose">关闭</button>
         <button class="btn primary" id="diagRun">重新检测</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- quick add task (natural language) -->
-  <div class="mask" id="mQuick">
-    <div class="sheet">
-      <h2>说一句话记作业</h2>
-      <div class="hint">把要记的作业说一句话，或把跟角色的对话直接粘进来。AI 会认出任务、归到对应课程；识别后你还能改归属再记入。</div>
-      <div class="field"><textarea id="qkText" placeholder="例：高数下周三交第三章作业 / 补习高等数学 / 财务管理要交小组报告…"></textarea></div>
-      <div class="loading" id="qkLoad">AI 识别中…</div>
-      <div id="qkResult"></div>
-      <div class="acts">
-        <button class="btn" id="qkCancel">取消</button>
-        <button class="btn primary" id="qkParse">识别</button>
       </div>
     </div>
   </div>
@@ -1215,53 +1199,6 @@ $("#sDiag").onclick = async ()=>{ $("#mSet").classList.remove("on"); $("#diagTex
 $("#diagRun").onclick = async ()=>{ $("#diagText").value="检测中…"; try{ $("#diagText").value=await diagnose(); }catch(e){ $("#diagText").value="诊断出错："+(e&&e.message||e); } };
 $("#diagClose").onclick = ()=> $("#mDiag").classList.remove("on");
 
-/* ---------- 说一句话记作业 弹层 ---------- */
-let qkParsed = null;
-function qkReset(){ qkParsed=null; $("#qkResult").innerHTML=""; $("#qkParse").textContent="识别"; }
-$("#sQuick").onclick  = ()=>{
-  if(!courses.length){ toast("先导入或添加课程，才能把作业归到课上"); return; }
-  qkReset(); $("#qkText").value=""; $("#mSet").classList.remove("on"); $("#mQuick").classList.add("on");
-};
-$("#qkCancel").onclick = ()=>{ qkReset(); $("#mQuick").classList.remove("on"); };
-function renderQuickResult(items){
-  const box = $("#qkResult"); box.innerHTML = "";
-  items.forEach(it=>{
-    const row = document.createElement("div"); row.className="qkrow";
-    const guess = it.course ? matchCourse(it.course) : null;
-    const sel = document.createElement("select"); sel.className="qksel";
-    courses.forEach(c=>{ const o=document.createElement("option"); o.value=c.id; o.textContent=c.name; if(guess&&guess.id===c.id) o.selected=true; sel.appendChild(o); });
-    const txt = document.createElement("div"); txt.className="qktxt"; txt.textContent = it.text;
-    row.appendChild(txt); row.appendChild(sel); box.appendChild(row);
-  });
-}
-$("#qkParse").onclick = async ()=>{
-  if(qkParsed){   // 第二段：记入
-    const rows = [...$("#qkResult").querySelectorAll(".qkrow")];
-    let added=0;
-    for(let i=0;i<rows.length;i++){
-      const cid = rows[i].querySelector(".qksel").value;
-      const text = qkParsed[i].text;
-      if(!cid || !text) continue;
-      const dup = taskList.some(t=>t.courseId===cid && t.text===text && !t.done);
-      if(dup) continue;
-      const rec = { courseId:cid, text, done:false };
-      try{ const cr = await api.db.create("tasks", rec); rec.id = cr && cr.id; }catch(e){}
-      taskList.push(rec); added++;
-    }
-    qkReset(); $("#qkText").value=""; $("#mQuick").classList.remove("on"); render(); autoSync();
-    toast(added ? `记入 ${added} 条作业` : "没有新增（可能已存在）");
-    return;
-  }
-  const raw = $("#qkText").value.trim();
-  if(!raw){ toast("先写一句要记的事"); return; }
-  $("#qkLoad").classList.add("on");
-  try{
-    const items = await aiParseTasksText(raw);
-    $("#qkLoad").classList.remove("on");
-    if(!items.length){ toast("没认出任务，换句话说说看"); return; }
-    qkParsed = items; renderQuickResult(items); $("#qkParse").textContent = `记入 ${items.length} 条`;
-  }catch(e){ $("#qkLoad").classList.remove("on"); toast("识别失败："+(e&&e.message||e)); }
-};
 $("#sDays").onclick   = async ()=>{ DAYS = DAYS===5?7:5; render(); await refreshSettingsState(); };
 /* ---------- 进入时显示（首页视图） ---------- */
 function homeLabel(h){ return ({week5:"整周·5天",week7:"整周·7天",day5:"当天·5天",day7:"当天·7天"})[h] || "整周·5天"; }
@@ -1508,7 +1445,7 @@ async function pullTasks(silent){
     }
   }
   if(!readable){
-    if(!silent) toast("你的小手机不让 App 读对话/记忆，没法从聊天里自动抓。可用「说一句话记作业」把话粘进来记。");
+    if(!silent) toast("你的小手机不让 App 读对话/记忆，没法从聊天里自动抓。可以双击课程手动加作业。");
     return;
   }
   await saveCfg({ pulledTasks: Array.from(seen).slice(-300) });   // 记住已处理过的，避免重复
