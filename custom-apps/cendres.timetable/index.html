@@ -957,13 +957,24 @@ async function aiParseText(raw){
 /* 用小手机的模型看图：必须挂在 messages[].image 上（ai.chat 会把图丢掉）；
    带一个只保留「聊天记录」位置的临时配置，去掉人设、预设条目、世界书、正则，模型才会老老实实当解析器吐 JSON */
 async function hostVision(sys, taskText, images){
-  const c=await getCfg(); let cid=(boundChars(c)[0]||{}).id;
-  if(!cid){ try{ const cs=await api.characters.list(); cid=(cs?.items||cs||[])[0]?.id; }catch(_){} }
+  const c=await getCfg(); let b0=boundChars(c)[0]||{}; let cid=b0.id, cname=b0.name||"";
+  if(!cid){ try{ const cs=await api.characters.list(); const f=(cs?.items||cs||[])[0]; cid=f&&f.id; cname=(f&&(f.name||f.title))||""; }catch(_){} }
+  _visionVia=cname||"（未知角色）";
   if(!cid) throw new Error("小手机里没有角色，没法借用它的看图接口");
   const msgs=images.slice(0,4).map((url,i)=>({ role:"user", content:i===0?taskText:"（同一张的续图）", image:url }));
   const promptProfile={ id:"timetable_parse", label:"课表识别", include:["chatHistory","shortTermMemory"], history:"default", enableWorldBooks:false, enableRegexes:false };
-  return await api.ai.generate({ characterId:cid, instruction:sys+"\n"+taskText, messages:msgs, promptProfile });
+  return await api.ai.generate({ characterId:cid, instruction:sys+"\n"+taskText+"\n如果你其实看不到任何图片（只看到「[图片]」这类文字），只输出：NO_IMAGE", messages:msgs, promptProfile });
 }
+let _visionVia="";
+/* 识别不出来时，用弹框把原因和模型原话摆出来（toast 太短看不全） */
+function showParseFail(text){ const raw=String(text||"").trim();
+  const noImg=/NO_IMAGE|\[图片\]|看不到.{0,6}图|没有.{0,4}(看到|收到).{0,4}图|无法(查看|看到|识别).{0,4}图|未(提供|上传).{0,4}图/.test(raw);
+  const why=noImg
+    ? `模型<b>没收到图片</b>。课程表借用的是角色「${esc(_visionVia)}」绑定的接口——去小手机 设置 › API，找到这个角色用的那个接口，把「<b>启用图像识别</b>」打开（模型本身也要能看图）。`
+    : `模型看到了，但没按格式返回课程。下面是它的原话，截给小克看：`;
+  let m=document.getElementById("mParseFail"); if(!m){ m=document.createElement("div"); m.id="mParseFail"; m.className="mask"; document.body.appendChild(m); m.addEventListener("click",e=>{ if(e.target===m) m.classList.remove("on"); }); }
+  m.innerHTML=`<div class="sheet"><h2>识别出 0 节课</h2><div class="hint" style="line-height:1.8">${why}</div><div style="max-height:40vh;overflow:auto;font-size:12.5px;white-space:pre-wrap;word-break:break-all;background:rgba(0,0,0,.05);border-radius:10px;padding:10px">${esc(raw.slice(0,1500))||"（空）"}</div><div class="acts"><button class="btn primary" onclick="this.closest('.mask').classList.remove('on')">知道了</button></div></div>`;
+  m.classList.add("on"); }
 async function aiParseImages(images){
   const cfg = await getCfg();
   if(hasCfg(cfg)){
@@ -1045,7 +1056,7 @@ function toCourses(res, debug){
   try{ arr = JSON.parse(m ? m[0] : text); }
   catch(e){
     // 把模型原话抛出去，让"识别失败"那条提示直接显示它到底说了啥
-    if(debug) throw new Error("模型没按JSON返回 → " + (text.slice(0,150)||"空"));
+    if(debug){ showParseFail(text); throw new Error("识别失败"); }
     throw e;
   }
   if(!Array.isArray(arr)) arr = arr.courses || arr.list || arr.data || arr.课程 || [];
@@ -1058,7 +1069,7 @@ function toCourses(res, debug){
     const s0=st[0]||1, e0=en[0]||st[1]||s0;
     return { name:String(name).trim(), day:dayN(x.day??x.weekday??x.星期), start:s0, end:Math.max(s0,e0),
       loc:String(x.loc||x.location||x.room||x.地点||x.教室||""), weeks:String(x.weeks||x.week||x.周次||"") }; }).filter(Boolean);
-  if(debug && out.length===0) toast("认到0节。模型返回：" + (text.slice(0,90)||"空"));
+  if(debug && out.length===0) showParseFail(text);
   return out;
 }
 
