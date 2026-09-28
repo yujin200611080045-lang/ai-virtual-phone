@@ -135,7 +135,7 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
                             <div className="ts-11 text-secondary" style={{ marginTop: 4 }}>{fmtDate(p.createdAt)} 记下</div>
                             {p.resolutionSuggestion && (
                                 <div className="ts-12" style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "color-mix(in srgb, var(--c-text, #111) 6%, transparent)", lineHeight: 1.6 }}>
-                                    可能已经做到了{p.resolutionSuggestion.reason ? `：${p.resolutionSuggestion.reason}` : ""}
+                                    🔔 可能已经做到了{p.resolutionSuggestion.reason ? `：${p.resolutionSuggestion.reason}` : ""}
                                     {byId.get(p.resolutionSuggestion.byId) && <span className="text-secondary">（来自「{byId.get(p.resolutionSuggestion.byId)!.title || "一条新记忆"}」）</span>}
                                 </div>
                             )}
@@ -235,7 +235,7 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
                     {selves.length === 0 && <div style={card} className="ts-12 text-secondary">他还没有写下对自己的认识。</div>}
                     {selves.filter(e => e.selfStatus === "promoted").map(e => (
                         <div key={e.id} style={card}>
-                            <div className="ts-11 text-secondary">已确认 · {ASPECT_LABEL[e.selfAspect || "nature"] || e.selfAspect} · 确认于 {fmtDate(e.updatedAt)}</div>
+                            <div className="ts-11 text-secondary">✦ {ASPECT_LABEL[e.selfAspect || "nature"] || e.selfAspect} · 确认于 {fmtDate(e.updatedAt)}</div>
                             <div className="ts-13" style={{ marginTop: 4, lineHeight: 1.7 }}>{e.content}</div>
                         </div>
                     ))}
@@ -273,7 +273,7 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
                                 <div className="ts-13" style={{ marginTop: 4, lineHeight: 1.7 }}>{f.content}</div>
                                 {src && (
                                     <button className="ts-11 text-secondary" style={{ marginTop: 6, background: "transparent", border: "none", padding: 0 }} onClick={() => openEntry(src.id)}>
-                                        因为「{src.title || src.content.slice(0, 16)}」
+                                        ↳ 因为「{src.title || src.content.slice(0, 16)}」
                                     </button>
                                 )}
                             </div>
