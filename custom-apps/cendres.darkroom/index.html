@@ -189,6 +189,8 @@
   .arc-line.arc-snd{font-style:italic;color:rgba(160,150,140,.6);font-size:.92em}
   .arc-line.now{color:#fff;text-shadow:0 0 8px rgba(212,10,4,.55)}
   .rd-play{display:inline-flex;align-items:center;gap:6px;margin:4px 0 10px;font-size:12.5px;letter-spacing:1px;color:var(--amber);background:rgba(212,10,4,.1);border:1px solid rgba(212,10,4,.3);border-radius:9px;padding:6px 12px;cursor:pointer;font-family:inherit}
+  .facebox{display:flex;align-items:flex-end;gap:12px;margin:4px 0 14px}
+  .faceimg{width:118px;height:148px;border-radius:14px;border:1px dashed rgba(212,10,4,.45);display:grid;place-items:center;color:var(--amber);font-size:12.5px;cursor:pointer;overflow:hidden;background:rgba(212,10,4,.04) center/cover no-repeat;text-align:center;padding:6px}
   #hubSet{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
   .slimrec:active{transform:scale(.99);background:rgba(40,34,32,.6)}
   .slimrec .tp{font-size:10.5px;letter-spacing:1px;color:var(--amber);border:1px solid rgba(212,10,4,.3);border-radius:6px;padding:2px 7px;flex:0 0 auto}
@@ -509,6 +511,7 @@
     <h2>设置</h2>
     <div class="menu">
       <button class="item" id="sRooms"><span class="ic">▦</span>TA 的房间<span class="sub" id="sRoomsState"></span></button>
+      <button class="item" id="sFace"><span class="ic">◐</span>锁脸 · TA 的样子<span class="sub" id="sFaceState">未设置</span></button>
       <button class="item" id="sGifts"><span class="ic">◇</span>礼物 / 摆件<span class="sub" id="sGiftsState"></span></button>
       <button class="item" id="sApi"><span class="ic">⚙︎</span>接口配置<span class="sub" id="sApiState">未配置</span></button>
       <button class="item" id="sGen"><span class="ic">✎</span>生成设定<span class="sub" id="sGenState"></span></button>
@@ -742,6 +745,15 @@
   </div></div>
 
   <!-- reader -->
+  <div class="mask" id="mFace"><div class="sheet">
+    <h2 id="faceTitle">锁脸</h2>
+    <div class="hint">上传一张 TA 的<b>正面照</b>：之后机器在外面找到 TA 时生成的画面，都照这张脸来画；POI 认人也会拿它比对。<br>照着照片画需要生图接口用「自填站子」（如 gpt-image）；用小手机生图时只能靠下面的外貌文字。</div>
+    <div class="facebox"><div class="faceimg" id="faceImg">＋<br>上传正面照</div><button type="button" class="minibtn" id="faceDel">删掉照片</button></div>
+    <input type="file" id="faceInput" accept="image/*" style="display:none">
+    <div class="field"><label>外貌（生成人像时一起用） <button type="button" class="minibtn" id="faceExtract">从人设重新提取</button></label>
+      <textarea id="faceLook" style="min-height:86px" placeholder="年龄、性别、身高身型、发型发色、五官脸型、肤色、常穿……"></textarea></div>
+    <div class="acts"><button class="btn" id="faceCancel">取消</button><button class="btn primary" id="faceSave">保存</button></div>
+  </div></div>
   <div class="mask center" id="mFav"><div class="sheet" style="border-radius:20px;max-width:520px">
     <h2 id="favTitle">收藏</h2>
     <div id="favList" style="max-height:62vh;overflow:auto"></div>
@@ -949,9 +961,9 @@ function dataUrlToBlob(dataUrl){ const c=dataUrl.indexOf(","); const head=dataUr
   const mime=(head.match(/data:([^;]+)/)||[])[1]||"image/png"; const bin=atob(b64); const arr=new Uint8Array(bin.length);
   for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i); return new Blob([arr],{type:mime}); }
 const EDIT_SIZES=["1024x1024","1536x1024","1024x1536","auto"];
-async function genImageEdit(cfg, srcUrl, prompt){
+async function genImageEdit(cfg, srcUrl, prompt, sizeOverride){
   if(cfg&&cfg.imgSrc==="host") throw new Error("小手机生图不支持编辑；换光线/加礼物请把生图接口改成自填的 gpt-image-1");
-  const base=(cfg.imgBase||cfg.base||"").trim(); const key=cfg.imgKey||cfg.key; const model=cfg.imgModel; const size=(cfg.imgSize||"").trim();
+  const base=(cfg.imgBase||cfg.base||"").trim(); const key=cfg.imgKey||cfg.key; const model=cfg.imgModel; const size=(sizeOverride||cfg.imgSize||"").trim();
   if(!base||!key||!model) throw new Error("生图接口没配全");
   const blob = srcUrl.startsWith("data:") ? dataUrlToBlob(srcUrl) : await (await fetch(srcUrl)).blob();
   const ext=(blob.type&&blob.type.indexOf("png")>=0)?"png":"jpg";
@@ -1298,10 +1310,11 @@ async function capturePoiImg(cam, ox, oy){
 /* 看图只有一条路：ai.generate 的 messages 里给消息挂 image（dataURL）。
    ai.chat 会把图片当文字丢掉——模型看不到图只能瞎猜，所以不再走。
    小手机那边的 API 配置要打开「图像识别」，否则图片会被降级成「[图片]」两个字。 */
-async function poiVisionCall(cfg, imgB64, text){
+async function poiVisionCall(cfg, imgB64, text, faceB64){
   const ai=api&&api.ai; if(!ai||!ai.generate||!cfg.charId) throw new Error("小手机没有 ai.generate");
-  const r=await ai.generate({ characterId:cfg.charId, instruction:text,
-    messages:[{ role:"user", content:"【监控截图】这是操作员锁定目标的那一帧画面。", image:imgB64 }] });
+  const msgs=[]; if(faceB64) msgs.push({ role:"user", content:"【正面照】这是 "+(cfg.charName||"TA")+" 的正面照，只用来比对认人，不是要分析的目标。", image:faceB64 });
+  msgs.push({ role:"user", content:"【监控截图】这是操作员锁定目标的那一帧画面，要分析的是这一张。", image:imgB64 });
+  const r=await ai.generate({ characterId:cfg.charId, instruction:text, messages:msgs });
   return _poiExtract(r); }
 function _poiValid(text){ if(!text||!text.trim()) return false;
   /* 允许全大写或混大小写的 KEY: 格式，至少 2 行 */
@@ -1339,7 +1352,8 @@ async function poiAnalyze(ox,oy){
   const knows=!!(((cfg.perChar||{})[cfg.charId]||{}).talkKnown);
   /* 认人用的线索：TA 此刻的外形穿着、在做什么、在哪、和谁 */
   const _lc=(curRoom.field&&curRoom.loc)||loc||{};
-  const clue=[_lc.look?("外形穿着："+_lc.look):"", _lc.activity?("此刻在做："+_lc.activity):"", _lc.shot?("姿态："+_lc.shot):"", _lc.place&&!_lc.home?("所在："+_lc.place):(_lc.room?("所在：家里「"+_lc.room+"」"):""), _lc.with?("同伴："+_lc.with):""].filter(Boolean).join("；");
+  const _look=await lookOf(cfg.charId).catch(()=>""); const _face=await faceData(cfg.charId).catch(()=>null);
+  const clue=[_face?"外貌以附上的正面照为准":"", _look?("外貌："+_look):"", _lc.look?("此刻穿着："+_lc.look):"", _lc.activity?("此刻在做："+_lc.activity):"", _lc.shot?("姿态："+_lc.shot):"", _lc.place&&!_lc.home?("所在："+_lc.place):(_lc.room?("所在：家里「"+_lc.room+"」"):""), _lc.with?("同伴："+_lc.with):""].filter(Boolean).join("；");
   const visionPrompt=`这是「${curRoom.name||"房间"}」的监控截图局部（操作员点在${posDesc}）。CAM:${camLabel(curRoom)} ${hh}:${mm}。监控对象：${cn}（${locInfo}）。
 
 图片里有一个红色十字准星（⊕），准星正对着的那一点就是操作员锁定的目标。
@@ -1403,7 +1417,7 @@ ASSESSMENT:核心个人物品
     let out=null, via="";
     /* 1. 优先视觉识别 */
     if(frameImg){
-      out=await poiVisionCall(cfg, frameImg, visionPrompt);
+      out=await poiVisionCall(cfg, frameImg, visionPrompt, _face);
       if(out&&/NO\s*VISUAL/i.test(out)) throw new Error("模型没看到截图——去小手机设置 › API，把这个角色用的那个接口的「启用图像识别」打开（模型也要能看图）");
       if(_poiValid(out)) via="vision"; else { console.warn("[POI] vision invalid:",out&&out.slice(0,200)); out=null; }
     }
@@ -2108,6 +2122,7 @@ async function refreshState(){ const c=await getCfg();
   $("#sGenState").textContent=(c.genView==="自述"?"TA自述":"监控")+" · "+(parseInt(c.genLen,10)||1000)+"字"+(String(c.tzOffset||"").trim()?(" · UTC"+(parseFloat(c.tzOffset)>=0?"+":"")+c.tzOffset):"");
   { const hw=(c.useHostWorld!==false)?(hostWB.length||0):0; const ownN=(Array.isArray(c.worldbook)?c.worldbook.length:0);
     if($("#sLoreState")) $("#sLoreState").textContent=[(c.preset&&String(c.preset).trim())?"预设":"",(ownN+hw)?("世界书"+(ownN+hw)+"条"):""].filter(Boolean).join(" · "); }
+  { const pc=((c.perChar||{})[c.charId])||{}; $("#sFaceState").textContent=pc.faceRef?"已锁脸":(pc.look?"只有外貌文字":"未设置"); }
   $("#sFontState").textContent=c.fontName?(c.fontName.length>10?c.fontName.slice(0,9)+"…":c.fontName):"默认宋体"; $("#sFontReset").style.display=c.fontName?"":"none"; }
 $("#setClose").onclick=()=>$("#mSet").classList.remove("on");
 
@@ -2342,10 +2357,10 @@ async function clipOf(r,i){ if(r._clips&&r._clips[i]) return r._clips[i];
   const ref=r.audio&&r.audio[i]; if(ref){ try{ const g=await api.media.get({ref}); if(g&&g.dataUrl){ r._clips=r._clips||[]; r._clips[i]=g.dataUrl; return g.dataUrl; } }catch(e){} }
   return null; }
 function subItemsOf(r){ if(Array.isArray(r.subItems)&&r.subItems.length) return r.subItems; return parseCaptions((r.subs||[]).join("\n")); }
-function fieldPrompt(loc,place){ const l=loc||{};
+function fieldPrompt(loc,place,look){ const l=loc||{};
   return [ "CCTV 监控摄像头画面："+(l.cam||"附近的监控摄像头")+"，高位俯拍，广角镜头，轻微鱼眼畸变，画面四角暗角",
     "地点："+place, l.scene||"",
-    l.look?("画面里的主体人物（离镜头中远距离，看得清身形和衣着）："+l.look):"画面里有一个人",
+    (look||l.look)?("画面里的主体人物（离镜头中远距离，看得清身形和衣着）："+[look?("外貌："+String(look).replace(/[。．.；;，,\s]+$/,"")):"", l.look?("此刻的样子："+String(l.look).replace(/[。．.；;，,\s]+$/,"")):""].filter(Boolean).join("；")):"画面里有一个人",
     l.shot?("此刻："+l.shot):(l.activity?("此刻正在"+l.activity):""),
     (l.with&&!/独自|一个人|^无$/.test(l.with))?("身边："+l.with):"",
     "写实监控录像截图质感，偏低清晰度，轻微噪点，色彩偏冷偏灰，画面里不要出现任何文字、字幕、时间戳或水印" ].filter(Boolean).join("。")+"。"; }
@@ -2412,7 +2427,13 @@ async function machineSearch(q,opts){ opts=opts||{}; q=String(q||"").trim();
   /* 不在家 / 家里那块没机位 → 调最近的摄像头、生成此刻的画面 */
   const camId="CAM "+String(1000+Math.floor(Math.random()*9000));
   const got=mWait("ACQUIRING"); let pano="",ar=1.5;
-  if(imgReady(cfg)){ try{ const url=await genImageRaw(cfg, fieldPrompt(loc,place), null, "1536x1024"); const c=await compressKeep(url); pano=c.url; ar=c.ar||1.5; got((loc.cam||"附近监控")+" · "+camId); }
+  if(imgReady(cfg)){ try{ const look=await lookOf(id); const face=await faceData(id); const fp=fieldPrompt(loc,place,look); let url=null;
+      if(face&&cfg.imgSrc!=="host"){ /* 锁脸：拿正面照当参考图 */
+        try{ url=await genImageEdit(cfg, face, fp+"画面里的这个人就是参考照片上的这个人：脸型、五官、发型发色必须和参考照片一致，只是换成监控远景里的样子；参考照片本身不要出现在画面里。", "1536x1024"); }
+        catch(e){ console.warn("[face] edit failed, fallback:",e); url=null; } }
+      else if(face) toast("锁脸需要生图接口用自填站子，这次只按外貌文字画");
+      if(!url) url=await genImageRaw(cfg, fp, null, "1536x1024");
+      const c=await compressKeep(url); pano=c.url; ar=c.ar||1.5; got((loc.cam||"附近监控")+" · "+camId); }
     catch(e){ got("NO VISUAL — "+String(e&&e.message||e).slice(0,40),true); } }
   else got("NO IMAGE API — AUDIO ONLY",true);
   const f={ charId:id, place, pano, panoAR:ar, panoZoom:zoomForAR(ar), camId, loc, at:Date.now() };
@@ -2422,6 +2443,38 @@ async function machineSearch(q,opts){ opts=opts||{}; q=String(q||"").trim();
 $("#machX").onclick=()=>machClose();
 $("#whoQGo").onclick=()=>{ const v=$("#whoQ").value; $("#whoQ").blur(); machineSearch(v); };
 $("#whoQ").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); $("#whoQ").blur(); machineSearch($("#whoQ").value); } });
+
+/* ---------- 锁脸 · TA 的样子（每个角色一份：正面照 + 外貌文字） ---------- */
+function pcOf(cid){ const c=_cfg||{}; return ((c.perChar||{})[cid||c.charId])||{}; }
+async function setPc(cid,patch){ const c=await getCfg(); const pc={...(c.perChar||{})}; pc[cid]={...pc[cid],...patch}; await saveCfg({perChar:pc}); }
+const _faceCache={};
+async function faceData(cid){ const ref=pcOf(cid).faceRef; if(!ref) return null; if(_faceCache[ref]) return _faceCache[ref];
+  try{ const g=await api.media.get({ref}); if(g&&g.dataUrl){ _faceCache[ref]=g.dataUrl; return g.dataUrl; } }catch(e){} return null; }
+/* 从人设里摘外貌：只摘写了的，不编 */
+async function extractLook(cid){ const d=await dossier(cid); const src=[d.persona,d.note].filter(Boolean).join("\n"); if(!src.trim()) return "";
+  const cfg=await getCfg();
+  const t=await directLLM({...cfg,charId:cid},[{role:"system",content:"你从角色设定里摘出外貌信息，只输出一段中文，不解释。"},{role:"user",content:"从下面的人设里摘出这个人的外貌：年龄、性别、身高身型、发型发色、五官脸型、肤色、常见穿着、明显特征。人设里没写的就不写，绝不编。输出一段 100 字以内。\n\n"+src.slice(0,3000)}],0.2);
+  return String(t||"").trim().replace(/^["“「]|["”」]$/g,"").slice(0,240); }
+async function lookOf(cid){ const pc=pcOf(cid); if(pc.look) return pc.look;
+  try{ const l=await extractLook(cid); if(l){ await setPc(cid,{look:l}); return l; } }catch(e){} return ""; }
+let _faceNew=null, _faceDrop=false;
+async function openFace(){ const c=await getCfg(); if(!c.charId){ toast("先进一个人的家"); return; }
+  _faceNew=null; _faceDrop=false; $("#faceTitle").textContent="锁脸 · "+(c.charName||"TA");
+  const pc=pcOf(c.charId); const box=$("#faceImg"); const cur=await faceData(c.charId);
+  box.style.backgroundImage=cur?`url("${cur}")`:""; box.innerHTML=cur?"":"＋<br>上传正面照"; $("#faceDel").style.display=cur?"":"none";
+  $("#faceLook").value=pc.look||""; $("#mSet").classList.remove("on"); $("#mFace").classList.add("on");
+  if(!pc.look){ $("#faceLook").placeholder="正在从人设里提取…"; try{ const l=await extractLook(c.charId); if(l&&!$("#faceLook").value) $("#faceLook").value=l; }catch(e){} $("#faceLook").placeholder="年龄、性别、身高身型、发型发色、五官脸型、肤色、常穿……"; } }
+$("#sFace").onclick=openFace;
+$("#faceImg").onclick=()=>$("#faceInput").click();
+$("#faceInput").addEventListener("change",async e=>{ const f=e.target.files&&e.target.files[0]; e.target.value=""; if(!f) return;
+  try{ _faceNew=await compressImage(f, 1024); _faceDrop=false; const box=$("#faceImg"); box.style.backgroundImage=`url("${_faceNew}")`; box.innerHTML=""; $("#faceDel").style.display=""; }catch(err){ toast("图片读不了"); } });
+$("#faceDel").onclick=()=>{ _faceNew=null; _faceDrop=true; const box=$("#faceImg"); box.style.backgroundImage=""; box.innerHTML="＋<br>上传正面照"; $("#faceDel").style.display="none"; };
+$("#faceExtract").onclick=async()=>{ const c=await getCfg(); const b=$("#faceExtract"); b.textContent="提取中…"; try{ const l=await extractLook(c.charId); if(l) $("#faceLook").value=l; else toast("人设里没找到外貌描写"); }catch(e){ toast("提取失败"); } b.textContent="从人设重新提取"; };
+$("#faceCancel").onclick=()=>$("#mFace").classList.remove("on");
+$("#faceSave").onclick=async()=>{ const c=await getCfg(); const cid=c.charId; const pc=pcOf(cid); const patch={ look:$("#faceLook").value.trim() };
+  if(_faceNew){ try{ const st=await api.media.put({dataUrl:_faceNew}); if(st&&st.ref){ if(pc.faceRef){ try{ await api.media.delete({ref:pc.faceRef}); }catch(e){} } patch.faceRef=st.ref; _faceCache[st.ref]=_faceNew; } }catch(e){ toast("照片存不进去"); return; } }
+  else if(_faceDrop&&pc.faceRef){ try{ await api.media.delete({ref:pc.faceRef}); }catch(e){} patch.faceRef=""; }
+  await setPc(cid,patch); $("#mFace").classList.remove("on"); await refreshState(); toast("已保存 TA 的样子"); };
 
 /* ---------- boot ---------- */
 if(!api){ document.body.innerHTML='<div style="padding:40px;text-align:center;color:#847d72">请在小手机里打开这个 App</div>'; }
