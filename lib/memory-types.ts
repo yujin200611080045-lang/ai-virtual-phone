@@ -62,7 +62,8 @@ export type MemoryConfig = {
     shortTermTokenBudget: number;           // token limit for short-term event log
     coreMemoryTokenBudget: number;          // token limit for injected core memories
     longTermTokenBudget: number;            // token limit for injected long-term memories
-    summarizationPrompt: string;            // user-editable prompt template for memory summarization
+    summarizationPrompt: string;            // user-editable prompt template for memory summarization（拆条关掉时才用）
+    extractionPrompt?: string;              // Ombre 拆条提取提示词（留空 = 默认）
     coreMemoryPrompt: string;               // user-editable prompt template for core-memory extraction
     vnSummaryPrompt: string;                // user-editable prompt for VN chapter summarization
     shortTermAllowedSources?: {
@@ -113,31 +114,31 @@ export const DEFAULT_SUMMARIZATION_PROMPT = `你是一个记忆整理助手。�
  * Default core-memory summarization prompt template.
  * Placeholders: {{char}}, {{earliest}}, {{latest}}, {{events}}
  */
-export const DEFAULT_CORE_MEMORY_PROMPT = `你是一个核心记忆整理助手。请根据以下长期记忆记录，为{{char}}整理一段“核心记忆”总结。
+export const DEFAULT_CORE_MEMORY_PROMPT = `你是{{char}}自己。下面是你这段时间的记忆，请从中整理出你的「核心记忆」——那些决定你们关系、你会一直带着的事实。
 
-角色：{{char}}
 时间跨度：{{earliest}} 至 {{latest}}
 
-长期记忆记录：
+记忆：
 {{events}}
 
-要求：
-- 突出最关键、最稳定、最影响关系判断的事实
-- 确认在一起 / 确认分手 / 复合
-- 订婚 / 结婚 / 离婚
-- 恋爱周年、结婚纪念日、在一起多久
-- 明确的长期关系身份（如恋人、前任、配偶）
-- 共同生活的重要里程碑（如同居、见家长、共同养宠物）
-- 普通日常聊天
-- 一般情绪波动
+要留下的：
+- 确认在一起 / 分手 / 复合；订婚、结婚等关系身份的变化
+- 纪念日、在一起多久
+- 共同生活的重要里程碑（同居、见家长、一起养宠物……）
+- 你们之间定下的、会一直遵守的约定和规矩
+
+不要写进来的：
+- 普通日常聊天、一时的情绪波动
 - 暂时性的矛盾或暧昧
-- 普通偏好信息
+- 一般的偏好信息
 - 任何不确定、推测性的内容
-- 用第三人称，事实性描述
-- 80-180字
+
+写法：
+- 用你自己的第一人称「我」，对方用名字或「她/他」
+- 只写事实，80-180 字
 - 不要使用 JSON、列表符号、标题或格式标记
 
-核心记忆总结：`;
+核心记忆：`;
 
 export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
     autoSummarizeEnabled: true,

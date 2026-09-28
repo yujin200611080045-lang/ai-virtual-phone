@@ -34,6 +34,7 @@ import {
     imp10,
     isArchivedMemory,
     isLegacySummary,
+    DEFAULT_EXTRACTION_PROMPT,
     lastActiveOf,
     letterIsReadable,
     logMemoryOp,
@@ -286,6 +287,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
     const [rebuildingCore, setRebuildingCore] = useState(false);
     const [editingPrompt, setEditingPrompt] = useState<string | null>(null);
     const [editingCorePrompt, setEditingCorePrompt] = useState<string | null>(null);
+    const [editingExtraction, setEditingExtraction] = useState<string | null>(null);
     const [confirmDeleteEntryId, setConfirmDeleteEntryId] = useState<string | null>(null);
     const [confirmClearAll, setConfirmClearAll] = useState(false);
     const [pickedCharId, setPickedCharId] = useState<string | null>(null);
@@ -406,6 +408,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
         if (view !== "settings") {
             setEditingPrompt(null);
             setEditingCorePrompt(null);
+            setEditingExtraction(null);
         }
     }, [view]);
 
@@ -1601,13 +1604,13 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                 </div>
 
                 {/* Summarization interval */}
-                <p className="menu-group-desc mx-2">自动总结间隔</p>
+                <p className="menu-group-desc mx-2">自动触发</p>
                 <div className="menu-group">
                     <MemorySettingsSliderItem
                         icon={Clock}
                         color={BINDING_ACCENTS.api}
-                        label="总结间隔"
-                        desc="每 N 条事件自动触发总结"
+                        label={(config.ombreExtractionEnabled ?? true) ? "自动提取间隔" : "总结间隔"}
+                        desc={(config.ombreExtractionEnabled ?? true) ? "每攒够 N 条新事件，自动拆条提取一次记忆" : "每 N 条事件自动触发总结"}
                         value={config.summarizationEventInterval ?? 50}
                         min={10}
                         max={200}
@@ -1617,8 +1620,8 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                     <MemorySettingsSliderItem
                         icon={Brain}
                         color={BINDING_ACCENTS.embedding}
-                        label="核心记忆总结间隔"
-                        desc="每 N 条长期记忆自动触发核心记忆总结"
+                        label="核心记忆整理间隔"
+                        desc="每新增 N 批记忆，自动重新整理一次核心记忆"
                         value={config.coreSummarizationInterval ?? 5}
                         min={1}
                         max={20}
@@ -1628,6 +1631,68 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                 </div>
 
                 {/* Summarization Prompt Editor */}
+                {(config.ombreExtractionEnabled ?? true) && (() => {
+                    const saved = config.extractionPrompt?.trim() || DEFAULT_EXTRACTION_PROMPT;
+                    const current = editingExtraction ?? saved;
+                    const modified = current !== saved;
+                    const isDef = saved === DEFAULT_EXTRACTION_PROMPT;
+                    return (
+                        <>
+                            <p className="menu-group-desc mx-2">记忆提取提示词</p>
+                            <div className="menu-group">
+                                <div className="menu-item">
+                                    <MemorySettingsIcon icon={FileText} color={BINDING_ACCENTS.preset} />
+                                    <div className="menu-label-group">
+                                        <span className="menu-label">拆条提取提示词</span>
+                                        <span className="menu-desc">
+                                            变量：{"{{char}}"} 记忆的主人、{"{{user}}"} 对方、{"{{max}}"} 每段最多几条。要求模型输出 JSON 数组，字段名别改
+                                        </span>
+                                    </div>
+                                    {!isDef && (
+                                        <div className="menu-right">
+                                            <button
+                                                onClick={() => {
+                                                    setEditingExtraction(null);
+                                                    const next = { ...config, extractionPrompt: "" };
+                                                    setConfig(next);
+                                                    saveMemoryConfig(next);
+                                                    showNotice("已恢复默认提取提示词");
+                                                }}
+                                                className="menu-label menu-label-danger ts-12 underline"
+                                            >
+                                                恢复默认
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="px-4 pb-4 flex flex-col gap-3">
+                                    <textarea
+                                        value={current}
+                                        onChange={e => setEditingExtraction(e.target.value)}
+                                        className="ui-textarea w-full min-h-[200px] ts-14 leading-relaxed resize-y"
+                                    />
+                                    {modified && (
+                                        <button
+                                            onClick={() => {
+                                                const text = current.trim();
+                                                const next = { ...config, extractionPrompt: text === DEFAULT_EXTRACTION_PROMPT ? "" : text };
+                                                setConfig(next);
+                                                saveMemoryConfig(next);
+                                                setEditingExtraction(null);
+                                                showNotice("提取提示词已保存");
+                                            }}
+                                            className="ui-btn ui-btn-primary p-2.5 w-full"
+                                        >
+                                            <Zap size={14} className="mr-1.5" /> 保存提词配置
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </>
+                    );
+                })()}
+
+                {!(config.ombreExtractionEnabled ?? true) && (<>
                 <p className="menu-group-desc mx-2">长期记忆提示词</p>
                 <div className="menu-group">
                     <div className="menu-item">
@@ -1662,6 +1727,8 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                         )}
                     </div>
                 </div>
+
+                </>)}
 
                 <p className="menu-group-desc mx-2">核心记忆提示词</p>
                 <div className="menu-group">
