@@ -18,7 +18,8 @@ import { loadNativeTimeline, formatTimelineForSummarization, filterTimelineByAll
 import { generateEmbedding, resolveEmbeddingModel } from "./memory-embedding";
 import { simpleLLMCall } from "./api-helpers";
 import { maybeRunCoreMemoryPipeline } from "./core-memory-builder";
-import { enforceActiveMemoryCap, extractFromEvents, runOmbreDecayCycle } from "./memory-ombre";
+import { enforceActiveMemoryCap, extractFromEvents, isLegacySummary, logMemoryOp, runOmbreDecayCycle } from "./memory-ombre";
+import { loadMemoryEntries } from "./memory-storage";
 
 /** Per-character lock to prevent concurrent summarization. */
 const summarizingSet = new Set<string>();
@@ -322,4 +323,100 @@ export async function summarizeSharedForMembers(params: {
     }
 
     return { success: true, summary, memberCount: memberIds.length };
+}
+
+/**
+ * 把旧版「一段一总结」的成段记忆拆成细节：
+ * 优先回到它当初总结的那段原始聊天（按时间跨度取回），逐块重新提取；原始记录已经没了就拆总结原文。
+ * 新记忆按事件实际发生的时间入库；原来那一大段归档（不删除，可恢复），并记下拆成了哪几条。
+ */
+export async function resplitLegacyMemories(
+    characterId: string,
+    options: {
+        ids?: string[];
+        onProgress?: (done: number, total: number, label: string) => void;
+        signal?: { cancelled: boolean };
+    } = {},
+): Promise<{ split: number; created: number; merged: number; failed: number; fromRaw: number; error?: string }> {
+    const all = await loadMemoryEntries(characterId);
+    const targets = all
+        .filter(e => (options.ids ? options.ids.includes(e.id) : isLegacySummary(e)))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const res = { split: 0, created: 0, merged: 0, failed: 0, fromRaw: 0 };
+    if (!resolveAuxiliaryApiConfig("memorySummaryApiConfigId")) {
+        return { ...res, error: "未配置记忆总结 API（请在绑定配置 → 辅助API绑定中设置）" };
+    }
+    const config = loadMemoryConfig();
+
+    for (let i = 0; i < targets.length; i++) {
+        if (options.signal?.cancelled) break;
+        const t = targets[i];
+        options.onProgress?.(i, targets.length, t.title || t.content.slice(0, 16));
+
+        // 1. 取回原始聊天
+        const span = typeof t.metadata?.timeSpan === "string" ? t.metadata.timeSpan.split(/\s*~\s*/) : [];
+        const from = span[0] && Number.isFinite(new Date(span[0]).getTime()) ? new Date(span[0]) : null;
+        const to = span[1] && Number.isFinite(new Date(span[1]).getTime()) ? new Date(span[1]) : null;
+        let sourceText = "";
+        let earliest = from ? from.toISOString() : t.createdAt;
+        let latest = to ? to.toISOString() : t.createdAt;
+        if (from && to) {
+            const raw = filterTimelineByAllowedSources(
+                loadNativeTimeline(characterId, { afterTimestamp: new Date(from.getTime() - 1000).toISOString() }),
+                config.shortTermAllowedSources,
+            ).filter(e => new Date(e.timestamp).getTime() <= to.getTime() + 1000);
+            const formatted = raw.length >= 2 ? formatTimelineForSummarization(raw) : null;
+            if (formatted && formatted.eventsText.trim()) {
+                sourceText = formatted.eventsText;
+                earliest = formatted.earliest;
+                latest = formatted.latest;
+            }
+        }
+        const fromRaw = Boolean(sourceText);
+        if (!fromRaw) sourceText = t.content;
+
+        // 2. 先把原来那段归档，免得新细节又被合并回它身上
+        const archivedOriginal: MemoryEntry = {
+            ...t,
+            updatedAt: new Date().toISOString(),
+            metadata: { ...(t.metadata || {}), archived: true, archivedAt: new Date().toISOString(), archivedReason: "resplit" },
+        };
+        await saveMemoryEntry(archivedOriginal);
+
+        // 3. 逐块重新提取（更细：每块最多 8 条；旧待办不开成计划）
+        const r = await extractFromEvents(characterId, sourceText, {
+            earliest, latest,
+            sourceApp: t.sourceApp,
+            origin: "auto_extract",
+            maxPerChunk: 8,
+            at: latest,
+            noPlans: true,
+            signal: options.signal,
+            metadata: { splitFrom: t.id, ...(typeof t.metadata?.summarizedEvents === "number" ? { summarizedEvents: t.metadata.summarizedEvents } : {}) },
+        });
+
+        if ("error" in r || r.created + r.merged === 0) {
+            // 失败就原样放回
+            await saveMemoryEntry({ ...t, updatedAt: new Date().toISOString() });
+            res.failed++;
+            continue;
+        }
+        await saveMemoryEntry({
+            ...archivedOriginal,
+            metadata: { ...(archivedOriginal.metadata || {}), splitInto: r.entries.map(e => e.id), splitFromRaw: fromRaw },
+        });
+        logMemoryOp(characterId, {
+            op: "拆成细节",
+            by: "你",
+            id: t.id,
+            title: t.title || t.content.slice(0, 20),
+            detail: `${fromRaw ? "回到原始聊天" : "按原文"}拆成 ${r.created} 条，合并 ${r.merged} 条`,
+        });
+        res.split++;
+        res.created += r.created;
+        res.merged += r.merged;
+        if (fromRaw) res.fromRaw++;
+    }
+    options.onProgress?.(targets.length, targets.length, "");
+    return res;
 }
