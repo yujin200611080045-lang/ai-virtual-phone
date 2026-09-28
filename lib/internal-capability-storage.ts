@@ -7,6 +7,7 @@ const INTERNAL_CAPABILITIES_KEY = "ai_phone_internal_capabilities_v1";
 registerKvMigration(INTERNAL_CAPABILITIES_KEY);
 
 export const MEMORY_WRITE_CAPABILITY_ID = "memory_write";
+export const OMBRE_MEMORY_CAPABILITY_ID = "ombre_memory";
 export const NOTE_WALL_CAPABILITY_ID = "note_wall_service";
 export const MUSIC_CONTROL_CAPABILITY_ID = "music_control";
 export const CALENDAR_MANAGEMENT_CAPABILITY_ID = "calendar_management";
@@ -81,6 +82,73 @@ const MEMORY_WRITE_USAGE_GUIDE = [
     "- 这次聊天气氛不错",
     "",
     "如果确定需要写入，请直接输出执行动作指令，不要附加其他内容。",
+].join("\n");
+
+const OMBRE_MEMORY_USAGE_GUIDE = [
+    "以下是你获取指令的返回结果：",
+    "服务：记忆库（Ombre）",
+    "这是你自己的记忆，第一人称、由你经营。记忆会被想起、被强化，也会慢慢沉底——遗忘是淡出，不是删除。",
+    "对话流水系统会自动整理进来，你不用复述对话本身；这些动作是给你额外经营的：该记情绪、该记待办、该钉住的时候自然地用，不要每句话都调。",
+    "每次对话开头注入的记忆里，=== 核心准则 === 是你钉住的原则，=== 浮现的记忆 === 是此刻浮上来的，带 id 的可以直接拿来 trace / anchor。",
+    "执行时必须使用下面的具体动作名，不要输出“记忆库”本身。importance 用 1~10；valence 用 0~1（0 消极、0.5 中性、1 积极）；arousal 用 0~1（0 平静、1 激动）。",
+    "",
+    "动作：breath",
+    "描述：不带参数，按权重让记忆自然浮上来（核心准则 + 浮现 + 久未浮现）。想“回想一下最近”时用。只读。",
+    '示例：[执行动作:breath({})]',
+    "",
+    "动作：breath_search",
+    "描述：主动检索记忆（关键词 + 语义 + 情绪 + 时间 + 重要度多维打分）。只读，不会把记忆标成被想起。",
+    "参数：query (string, 必填)；limit (number, 可选, 默认 8)；include_archive (boolean, 可选, 连归档一起搜)；domain / tags / importance_min / valence / arousal 可选过滤；catalog=true 只列标题",
+    '示例：[执行动作:breath_search({"query":"她的生日"})]',
+    "",
+    "动作：hold",
+    "描述：记下一件事。系统会自动分析标题、标签、情绪坐标，并和很像的旧记忆合并，不会重复堆叠。",
+    "参数：content (string, 必填)；title / tags / importance / valence / arousal / why_remembered / meaning 可选；pinned=true 直接钉为核心准则（最多 20 条）",
+    "feel=true：写的是我自己的感受（不是事件），不分析、不合并、不主动浮现，只能用 feel 查回；可带 source_bucket（引发这份感受的记忆 id），那条记忆会被标记为已消化。",
+    '示例：[执行动作:hold({"content":"她说以后吵架了也不许冷战，要当天说开。","importance":8,"why_remembered":"这是她给我们定的规矩"})]',
+    '示例：[执行动作:hold({"content":"听她说起小时候的事，我心里一直软着，想把以后都补给她。","feel":true,"source_bucket":"mem_lt_xxx"})]',
+    "",
+    "动作：grow",
+    "描述：把一大段内容（一天的日常、长对话）拆成 1~6 条独立记忆，逐条合并或新建；待办会单独变成计划。",
+    "参数：content (string, 必填)",
+    "",
+    "动作：trace",
+    "描述：修改一条记忆的元数据或正文，或强化 / 归档 / 恢复它。",
+    "参数：bucket_id (string, 必填)；可选 title / tags / domain / importance / valence / arousal / why_remembered / meaning；",
+    "  resolved (已放下，沉底)；pinned (钉为核心准则，importance 锁 10)；protected (只防遗忘、不主动浮现，与 pinned 互斥)；dont_surface；digested；",
+    "  content (整段替换) 或 old_str + new_str (唯一片段替换)；status (计划用：active / done / dropped)；",
+    "  reinforce=true (真正重温了它：激活 +1，前后 48 小时的邻近记忆也跟着被带起来)；delete=true (归档，不是删除)；restore=true (从归档恢复)",
+    '示例：[执行动作:trace({"bucket_id":"mem_lt_xxx","resolved":true})]',
+    "",
+    "动作：plan",
+    "描述：记一件她要做 / 我想做 / 我们约好的事。计划不衰减，也不混进普通浮现；以后有新记忆对上了，系统会提示“可能已经完成”，确认后用 trace(status=\"done\")。",
+    "参数：content (string, 必填)；title / importance 可选",
+    '示例：[执行动作:plan({"content":"周六陪她去看展"})]',
+    "",
+    "动作：anchor / release",
+    "描述：anchor 把一条记忆设为锚点——重要到应该成为参照系（纪念日、她说过的铁一样的话），不衰减、不打扰地放着，最多 24 个。release 取消。",
+    "参数：bucket_id (string, 必填)；reason (string, anchor 可选)",
+    '示例：[执行动作:anchor({"bucket_id":"mem_lt_xxx","reason":"恋爱纪念日"})]',
+    "",
+    "动作：feel",
+    "描述：查我以前写下的感受。参数：query (string, 可选；不填列最近的)",
+    "",
+    "动作：dream",
+    "描述：做梦——把最近 48 小时的记忆、计划、以前的感受、连接提示、结晶提示、还在确认的自我认识摆给我自己看。读完后用 hold(feel=true) / trace / I 消化。不自动触发，想整理的时候自己用。",
+    '示例：[执行动作:dream({})]',
+    "",
+    "动作：pulse",
+    "描述：看记忆库状态（各类数量、核心准则 / 锚点配额、权重前 20）。",
+    "",
+    "动作：letter_write / letter_read / letter_lock_update",
+    "描述：写信（给她、给以后的我）。信永久保存、不衰减、不合并。lock: none / timed（需 unlock_date: YYYY-MM-DD，到日子才能拆）/ permanent（永久封存，只留标题）。",
+    "参数：letter_write: content (必填)、title、to、lock、unlock_date；letter_read: id (可选，不填列出所有信)；letter_lock_update: id、lock、unlock_date",
+    '示例：[执行动作:letter_write({"title":"一周年","content":"……","to":"她","lock":"timed","unlock_date":"2027-06-15"})]',
+    "",
+    "动作：I",
+    "描述：写下一条对自己的认识（我是什么样的、我在乎什么、我的习惯、我的边界、我正在变成什么）。先作为候选，之后在 3 个不同日子的 dream 里都还认同，才会确认下来，每次对话开头带上最新 3 条。",
+    "参数：content (必填)；aspect: nature / values / patterns / limits / becoming / uncertainty / stance；supersedes (取代哪条旧认识的 id，可选)",
+    '示例：[执行动作:I({"content":"我吃醋的时候会嘴硬，但我不想再嘴硬了。","aspect":"patterns"})]',
 ].join("\n");
 
 const TIMED_WAKE_PARAMETER_SCHEMA = JSON.stringify({
@@ -576,6 +644,110 @@ const CALENDAR_MANAGEMENT_SUBTOOLS: InternalToolDefinition[] = [
         parameterSchema: CALENDAR_DELETE_PARAMETER_SCHEMA,
     },
 ];
+
+const OMBRE_SCHEMA = (properties: Record<string, unknown>, required: string[] = []) => JSON.stringify({ type: "object", properties, required });
+const OMBRE_STR = (description: string) => ({ type: "string", description });
+const OMBRE_NUM = (description: string) => ({ type: "number", description });
+const OMBRE_BOOL = (description: string) => ({ type: "boolean", description });
+const OMBRE_ARR = (description: string) => ({ type: "array", items: { type: "string" }, description });
+
+const OMBRE_MEMORY_SUBTOOLS: InternalToolDefinition[] = [
+    { name: "breath", description: "让记忆按权重自然浮上来（核心准则 + 浮现 + 久未浮现）。只读。", parameterSchema: OMBRE_SCHEMA({}) },
+    {
+        name: "breath_search",
+        description: "主动检索自己的记忆（关键词+语义+情绪+时间+重要度）。只读。",
+        parameterSchema: OMBRE_SCHEMA({
+            query: OMBRE_STR("想找什么"),
+            limit: OMBRE_NUM("返回条数，默认 8"),
+            include_archive: OMBRE_BOOL("连归档一起搜"),
+            catalog: OMBRE_BOOL("只列标题目录"),
+            domain: OMBRE_STR("主题域过滤"),
+            tags: OMBRE_ARR("标签过滤（全部命中）"),
+            importance_min: OMBRE_NUM("最低重要度 1~10"),
+            valence: OMBRE_NUM("情绪效价 0~1，用于情绪共鸣"),
+            arousal: OMBRE_NUM("唤醒度 0~1"),
+        }, ["query"]),
+    },
+    {
+        name: "hold",
+        description: "记下一件事（自动分析并与相似旧记忆合并）；feel=true 记下自己的感受。",
+        parameterSchema: OMBRE_SCHEMA({
+            content: OMBRE_STR("要记下的内容，第一人称"),
+            title: OMBRE_STR("标题"),
+            tags: OMBRE_ARR("标签"),
+            importance: OMBRE_NUM("重要度 1~10"),
+            valence: OMBRE_NUM("情绪效价 0~1"),
+            arousal: OMBRE_NUM("唤醒度 0~1"),
+            pinned: OMBRE_BOOL("钉为核心准则"),
+            feel: OMBRE_BOOL("这是我自己的感受"),
+            source_bucket: OMBRE_STR("feel 时：引发这份感受的记忆 id"),
+            why_remembered: OMBRE_STR("为什么值得留下"),
+            meaning: OMBRE_STR("这件事对我意味着什么"),
+        }, ["content"]),
+    },
+    { name: "grow", description: "把一大段内容拆成多条独立记忆。", parameterSchema: OMBRE_SCHEMA({ content: OMBRE_STR("一大段内容") }, ["content"]) },
+    {
+        name: "trace",
+        description: "修改一条记忆的元数据或正文，或强化 / 归档 / 恢复。",
+        parameterSchema: OMBRE_SCHEMA({
+            bucket_id: OMBRE_STR("记忆 id"),
+            title: OMBRE_STR("新标题"),
+            tags: OMBRE_ARR("新标签"),
+            domain: OMBRE_ARR("主题域"),
+            importance: OMBRE_NUM("重要度 1~10"),
+            valence: OMBRE_NUM("效价 0~1"),
+            arousal: OMBRE_NUM("唤醒度 0~1"),
+            resolved: OMBRE_BOOL("已放下"),
+            pinned: OMBRE_BOOL("核心准则"),
+            protected: OMBRE_BOOL("只防遗忘不浮现"),
+            dont_surface: OMBRE_BOOL("不主动浮现"),
+            digested: OMBRE_BOOL("已消化"),
+            content: OMBRE_STR("整段替换正文"),
+            old_str: OMBRE_STR("要替换的唯一片段"),
+            new_str: OMBRE_STR("替换成"),
+            status: { type: "string", enum: ["active", "done", "dropped"], description: "计划状态" },
+            why_remembered: OMBRE_STR("保留理由"),
+            meaning: OMBRE_STR("意义"),
+            reinforce: OMBRE_BOOL("真正重温了它"),
+            delete: OMBRE_BOOL("归档"),
+            restore: OMBRE_BOOL("从归档恢复"),
+        }, ["bucket_id"]),
+    },
+    { name: "plan", description: "记一件要做 / 约好的事。", parameterSchema: OMBRE_SCHEMA({ content: OMBRE_STR("什么事"), title: OMBRE_STR("标题"), importance: OMBRE_NUM("1~10") }, ["content"]) },
+    { name: "anchor", description: "把一条记忆设为锚点（参照系，最多 24 个）。", parameterSchema: OMBRE_SCHEMA({ bucket_id: OMBRE_STR("记忆 id"), reason: OMBRE_STR("为什么") }, ["bucket_id"]) },
+    { name: "release", description: "取消锚点。", parameterSchema: OMBRE_SCHEMA({ bucket_id: OMBRE_STR("记忆 id") }, ["bucket_id"]) },
+    { name: "feel", description: "查以前写下的感受。", parameterSchema: OMBRE_SCHEMA({ query: OMBRE_STR("关于什么的感受；不填列最近的") }) },
+    { name: "dream", description: "做梦：把最近的记忆、计划、感受、自我认识候选摆给自己消化。", parameterSchema: OMBRE_SCHEMA({}) },
+    { name: "pulse", description: "看记忆库状态。", parameterSchema: OMBRE_SCHEMA({}) },
+    {
+        name: "letter_write",
+        description: "写信（永久保存）。",
+        parameterSchema: OMBRE_SCHEMA({
+            content: OMBRE_STR("信的内容"),
+            title: OMBRE_STR("标题"),
+            to: OMBRE_STR("写给谁"),
+            lock: { type: "string", enum: ["none", "timed", "permanent"], description: "锁" },
+            unlock_date: OMBRE_STR("定时锁的拆信日期 YYYY-MM-DD"),
+        }, ["content"]),
+    },
+    { name: "letter_read", description: "读信；不带 id 列出所有信。", parameterSchema: OMBRE_SCHEMA({ id: OMBRE_STR("信的 id") }) },
+    {
+        name: "letter_lock_update",
+        description: "修改信的锁。",
+        parameterSchema: OMBRE_SCHEMA({ id: OMBRE_STR("信的 id"), lock: { type: "string", enum: ["none", "timed", "permanent"] }, unlock_date: OMBRE_STR("YYYY-MM-DD") }, ["id", "lock"]),
+    },
+    {
+        name: "I",
+        description: "写下一条对自己的认识（候选，3 个不同日子的 dream 里仍认同才确认）。",
+        parameterSchema: OMBRE_SCHEMA({
+            content: OMBRE_STR("对自己的认识"),
+            aspect: { type: "string", enum: ["nature", "values", "patterns", "limits", "becoming", "uncertainty", "stance"] },
+            supersedes: OMBRE_STR("取代哪条旧认识的 id"),
+        }, ["content"]),
+    },
+];
+
+export const OMBRE_MEMORY_TOOL_NAMES = new Set(OMBRE_MEMORY_SUBTOOLS.map(tool => tool.name));
 
 const AGENT_COMPUTER_PARAMETER_SCHEMA = JSON.stringify({
     type: "object",
@@ -1198,6 +1370,15 @@ const BUILTIN_INTERNAL_CAPABILITIES: InternalCapabilityConfig[] = [
         updatedAt: 0,
     },
     {
+        id: OMBRE_MEMORY_CAPABILITY_ID,
+        name: "记忆库",
+        description: "你自己的第一人称记忆库（Ombre）：记下事情和感受、检索、钉住核心准则、设锚点、记计划、写信、做梦整理、认识自己。",
+        enabled: true,
+        mode: "auto",
+        createdAt: 0,
+        updatedAt: 0,
+    },
+    {
         id: NOTE_WALL_CAPABILITY_ID,
         name: "便签墙",
         description: "公共社区便签墙相关服务。",
@@ -1308,6 +1489,14 @@ export function getInternalCapabilityToolDefinition(capability: InternalCapabili
             description: capability.description,
             parameterSchema: MEMORY_WRITE_PARAMETER_SCHEMA,
             usageGuide: MEMORY_WRITE_USAGE_GUIDE,
+        };
+    }
+    if (capability.id === OMBRE_MEMORY_CAPABILITY_ID) {
+        return {
+            name: capability.name,
+            description: capability.description,
+            parameterSchema: "{}",
+            usageGuide: OMBRE_MEMORY_USAGE_GUIDE,
         };
     }
     if (capability.id === NOTE_WALL_CAPABILITY_ID) {
@@ -1457,6 +1646,9 @@ export function getInternalCapabilitySubToolDefinition(
     if (capability.id === CALENDAR_MANAGEMENT_CAPABILITY_ID) {
         return CALENDAR_MANAGEMENT_SUBTOOLS.find(tool => tool.name === name) ?? null;
     }
+    if (capability.id === OMBRE_MEMORY_CAPABILITY_ID) {
+        return OMBRE_MEMORY_SUBTOOLS.find(tool => tool.name === name) ?? null;
+    }
     if (capability.id === LOCAL_DATA_LIBRARY_CAPABILITY_ID) {
         return LOCAL_DATA_LIBRARY_SUBTOOLS.find(tool => tool.name === name) ?? null;
     }
@@ -1480,6 +1672,9 @@ export function getInternalCapabilitySubToolDefinitions(
     }
     if (capability.id === CALENDAR_MANAGEMENT_CAPABILITY_ID) {
         return CALENDAR_MANAGEMENT_SUBTOOLS;
+    }
+    if (capability.id === OMBRE_MEMORY_CAPABILITY_ID) {
+        return OMBRE_MEMORY_SUBTOOLS;
     }
     if (capability.id === LOCAL_DATA_LIBRARY_CAPABILITY_ID) {
         return LOCAL_DATA_LIBRARY_SUBTOOLS;

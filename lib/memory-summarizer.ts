@@ -6,9 +6,7 @@ import type { MemoryEntry } from "./memory-types";
 import { DEFAULT_SUMMARIZATION_PROMPT } from "./memory-types";
 import {
     loadMemoryConfig,
-    loadMemoryEntries,
     saveMemoryEntry,
-    deleteMemoryEntries,
     getEventCounter,
     resetEventCounter,
     getLastSummarizedTimestamp,
@@ -20,6 +18,7 @@ import { loadNativeTimeline, formatTimelineForSummarization, filterTimelineByAll
 import { generateEmbedding, resolveEmbeddingModel } from "./memory-embedding";
 import { simpleLLMCall } from "./api-helpers";
 import { maybeRunCoreMemoryPipeline } from "./core-memory-builder";
+import { enforceActiveMemoryCap, extractFromEvents, runOmbreDecayCycle } from "./memory-ombre";
 
 /** Per-character lock to prevent concurrent summarization. */
 const summarizingSet = new Set<string>();
@@ -131,6 +130,36 @@ export async function runSummarizationPipeline(
 
     const { eventsText, earliest, latest } = formatted;
 
+    const sourceSessionIdsForWindow = Array.from(new Set(
+        allEntries
+            .map(entry => entry.sessionId)
+            .filter((sessionId): sessionId is string => Boolean(sessionId)),
+    ));
+
+    // Ombre 拆条：一段对话 → 0~5 条第一人称独立记忆，和相似旧记忆合并（不再一段一大坨）
+    if (config.ombreExtractionEnabled !== false) {
+        const sourceCountsX = new Map<string, number>();
+        for (const e of allEntries) sourceCountsX.set(e.sourceApp, (sourceCountsX.get(e.sourceApp) || 0) + 1);
+        const dominant = [...sourceCountsX.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "chat";
+        const extracted = await extractFromEvents(characterId, eventsText, {
+            earliest,
+            latest,
+            sourceApp: dominant as MemoryEntry["sourceApp"],
+            metadata: { summarizedEvents: allEntries.length, sourceSessionIds: sourceSessionIdsForWindow },
+        });
+        if ("error" in extracted) return { success: false, error: extracted.error };
+        setLastSummarizedTimestamp(characterId, latest);
+        resetEventCounter(characterId);
+        await enforceActiveMemoryCap(characterId, config.maxLongTermEntries);
+        if (extracted.created + extracted.merged + extracted.plans > 0) {
+            incrementCoreMemoryCounter(characterId);
+            await maybeRunCoreMemoryPipeline(characterId, characterName);
+        }
+        try { await runOmbreDecayCycle(characterId, config); } catch { /* ignore */ }
+        console.log(`[MemorySummarizer] Ombre extract ${allEntries.length} events → new ${extracted.created} / merged ${extracted.merged} / plans ${extracted.plans}`);
+        return { success: true };
+    }
+
     // Use user-editable prompt template from config, with placeholder substitution
     const promptTemplate = config.summarizationPrompt?.trim() || DEFAULT_SUMMARIZATION_PROMPT;
     const summaryPrompt = promptTemplate
@@ -185,6 +214,7 @@ export async function runSummarizationPipeline(
 
     // Save as long-term memory
     const now = new Date().toISOString();
+    void sourceSessionIdsForWindow;
     const longTermEntry: MemoryEntry = {
         id: `mem_lt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         characterId,
@@ -211,17 +241,13 @@ export async function runSummarizationPipeline(
     setLastSummarizedTimestamp(characterId, latest);
     resetEventCounter(characterId);
 
-    // Enforce long-term limit
-    const allLongTerm = await loadMemoryEntries(characterId);
-    if (allLongTerm.length > config.maxLongTermEntries) {
-        const excess = allLongTerm.slice(0, allLongTerm.length - config.maxLongTermEntries);
-        await deleteMemoryEntries(excess.map(e => e.id));
-    }
+    // 数量上限：超出的按衰减分归档（遗忘是淡出，不删除）
+    await enforceActiveMemoryCap(characterId, config.maxLongTermEntries);
 
     incrementCoreMemoryCounter(characterId);
     await maybeRunCoreMemoryPipeline(characterId, characterName);
     // 遗忘落地：把忘透了的旧记忆归档（纯本地，不发请求）
-    try { const { runMemoryDecayArchival } = await import("./memory-service"); await runMemoryDecayArchival(characterId, config); } catch { /* ignore */ }
+    try { await runOmbreDecayCycle(characterId, config); } catch { /* ignore */ }
 
     console.log(`[MemorySummarizer] Summarized ${allEntries.length} entries → 1 long-term memory`);
     return { success: true };
@@ -291,11 +317,8 @@ export async function summarizeSharedForMembers(params: {
             },
         };
         await saveMemoryEntry(entry);
-        // 各自裁剪上限
-        const all = await loadMemoryEntries(characterId);
-        if (all.length > config.maxLongTermEntries) {
-            await deleteMemoryEntries(all.slice(0, all.length - config.maxLongTermEntries).map(e => e.id));
-        }
+        // 各自的数量上限：超出的按衰减分归档
+        await enforceActiveMemoryCap(characterId, config.maxLongTermEntries);
     }
 
     return { success: true, summary, memberCount: memberIds.length };

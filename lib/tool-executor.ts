@@ -72,6 +72,7 @@ import {
     searchLocalDataRecords,
 } from "./local-data-fs";
 import { makeTimedWakeId, saveTimedWakeSchedule } from "./timed-wake-storage";
+import { executeOmbreMemoryTool, isOmbreMemoryToolName } from "./ombre-tool-executor";
 import { resolveUserIdentity } from "./settings-storage";
 import { attachAbortSignal, isAbortError, throwIfAborted } from "./abort-utils";
 import {
@@ -792,6 +793,7 @@ async function executeInternalTool(call: ToolCall, context?: ToolExecutionContex
     if (call.name === "角色电脑") return executeAgentComputerTool(call, context);
     if (isRealityBridgeToolName(call.name)) return executeRealityBridgeTool(call, context);
     if (call.name === "稍后主动联系" || call.name === "设置定时醒来") return executeTimedWakeTool(call, context);
+    if (isOmbreMemoryToolName(call.name)) return executeOmbreMemoryTool(call, context);
 
     if (call.name !== "写入记忆") return null;
 

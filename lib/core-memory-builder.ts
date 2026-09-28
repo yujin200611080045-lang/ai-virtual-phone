@@ -40,7 +40,10 @@ export async function runCoreMemoryPipeline(
     options?: { force?: boolean },
 ): Promise<{ success: boolean; error?: string; rebuiltCount?: number }> {
     const config = loadMemoryConfig();
-    const allLongTermEntries = await loadMemoryEntriesByType(characterId, "long_term");
+    // 只拿普通事件记忆：感受 / 计划 / 信 / 自我认识 / 归档 不进核心记忆提炼
+    const allLongTermEntries = (await loadMemoryEntriesByType(characterId, "long_term"))
+        .filter(entry => (entry.kind ?? "dynamic") === "dynamic" || entry.kind === "permanent")
+        .filter(entry => entry.metadata?.archived !== true);
 
     if (allLongTermEntries.length === 0) {
         return { success: false, error: "没有可用于总结核心记忆的长期记忆" };
@@ -53,7 +56,7 @@ export async function runCoreMemoryPipeline(
 
     const afterTimestamp = options?.force ? undefined : (getLastCoreSummarizedTimestamp(characterId) ?? undefined);
     const entries = allLongTermEntries
-        .filter(entry => !afterTimestamp || entry.createdAt > afterTimestamp)
+        .filter(entry => !afterTimestamp || (entry.updatedAt || entry.createdAt) > afterTimestamp)
         .map(entry => ({
             id: entry.id,
             timestamp: entry.createdAt,
