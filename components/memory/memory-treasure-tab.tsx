@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { Mail, MailOpen, Lock, Hourglass, Plus, X, Check, Anchor, Moon } from "lucide-react";
 import type { MemoryEntry } from "@/lib/memory-types";
+import { glass, glassCard, ghostBtn, pill } from "./memory-ui";
 import {
     OMBRE_LIMITS,
     isArchivedMemory,
@@ -33,14 +34,8 @@ const ASPECT_LABEL: Record<string, string> = {
     becoming: "我正在变成", uncertainty: "我还不确定", stance: "我的立场",
 };
 
-const card = { background: "var(--c-card, #fff)", borderRadius: 14, padding: "12px 14px", flexShrink: 0 } as const;
-const pill = (on: boolean) => ({
-    flexShrink: 0, whiteSpace: "nowrap" as const, padding: "5px 12px", borderRadius: 999, lineHeight: 1.4,
-    border: "1px solid var(--c-border, rgba(0,0,0,0.1))",
-    background: on ? "var(--c-text, #333)" : "transparent",
-    color: on ? "var(--c-bg, #fff)" : "var(--c-text-secondary, #888)",
-});
-const btn = { display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 999, border: "1px solid var(--c-border, rgba(0,0,0,0.12))", background: "transparent", color: "var(--c-text, #333)" } as const;
+const card = glassCard;
+const btn = ghostBtn;
 
 function fmtDate(iso?: string): string {
     return iso ? iso.slice(0, 10) : "";
@@ -135,12 +130,12 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
                     )}
                     {activePlans.length === 0 && <div style={card} className="ts-12 text-secondary">现在没有进行中的计划。</div>}
                     {activePlans.map(p => (
-                        <div key={p.id} style={{ ...card, border: p.resolutionSuggestion ? "1.5px solid #e0a020" : undefined }}>
+                        <div key={p.id} style={{ ...card, border: p.resolutionSuggestion ? "1px solid var(--c-text, #111)" : card.border }}>
                             <div className="ts-13" style={{ fontWeight: 600, lineHeight: 1.6 }} onClick={() => openEntry(p.id)}>{p.content}</div>
                             <div className="ts-11 text-secondary" style={{ marginTop: 4 }}>{fmtDate(p.createdAt)} 记下</div>
                             {p.resolutionSuggestion && (
-                                <div className="ts-12" style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(224,160,32,0.12)", lineHeight: 1.6 }}>
-                                    🔔 可能已经做到了{p.resolutionSuggestion.reason ? `：${p.resolutionSuggestion.reason}` : ""}
+                                <div className="ts-12" style={{ marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "color-mix(in srgb, var(--c-text, #111) 6%, transparent)", lineHeight: 1.6 }}>
+                                    可能已经做到了{p.resolutionSuggestion.reason ? `：${p.resolutionSuggestion.reason}` : ""}
                                     {byId.get(p.resolutionSuggestion.byId) && <span className="text-secondary">（来自「{byId.get(p.resolutionSuggestion.byId)!.title || "一条新记忆"}」）</span>}
                                 </div>
                             )}
@@ -184,10 +179,10 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
                                 <button
                                     key={l.id}
                                     onClick={() => readable ? setReading(l) : notice(lock === "permanent" ? "这封信永久封存着" : `还要 ${daysUntil(l.letterLock?.unlockAt)} 天才能拆`)}
-                                    style={{ position: "relative", aspectRatio: "1.45", borderRadius: 12, border: "none", padding: 12, textAlign: "left", background: fromUser ? "#fdf1e4" : "#eef1fb", color: "#3a3a3a", overflow: "hidden" }}
+                                    style={{ ...glass, position: "relative", aspectRatio: "1.45", padding: 12, textAlign: "left", color: "var(--c-text, #111)", overflow: "hidden", borderRadius: 12 }}
                                 >
-                                    <svg viewBox="0 0 100 60" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.35 }}>
-                                        <polyline points="0,0 50,34 100,0" fill="none" stroke="#8a8a8a" strokeWidth="0.8" />
+                                    <svg viewBox="0 0 100 60" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.18 }}>
+                                        <polyline points="0,0 50,34 100,0" fill="none" stroke="currentColor" strokeWidth="0.6" />
                                     </svg>
                                     <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", justifyContent: "space-between" }}>
                                         <span className="ts-11" style={{ opacity: 0.7 }}>{fromUser ? `你 → ${characterName}` : `${characterName} →`} · {fmtDate(l.createdAt)}</span>
@@ -215,7 +210,7 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
                             if (!a) return <div key={i} style={{ aspectRatio: "1", borderRadius: 12, border: "1px dashed var(--c-border, rgba(0,0,0,0.15))" }} />;
                             const reason = typeof a.metadata?.anchorReason === "string" ? a.metadata.anchorReason : "";
                             return (
-                                <div key={a.id} style={{ aspectRatio: "1", borderRadius: 12, background: "var(--c-card, #fff)", padding: 8, display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden" }}>
+                                <div key={a.id} style={{ ...glass, aspectRatio: "1", borderRadius: 12, padding: 8, display: "flex", flexDirection: "column", justifyContent: "space-between", overflow: "hidden" }}>
                                     <button onClick={() => openEntry(a.id)} style={{ background: "transparent", border: "none", padding: 0, textAlign: "left", color: "var(--c-text, #333)" }}>
                                         <Anchor size={12} style={{ opacity: 0.6 }} />
                                         <div className="ts-11" style={{ fontWeight: 700, lineHeight: 1.35, marginTop: 2, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{a.title || a.content}</div>
@@ -240,7 +235,7 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
                     {selves.length === 0 && <div style={card} className="ts-12 text-secondary">他还没有写下对自己的认识。</div>}
                     {selves.filter(e => e.selfStatus === "promoted").map(e => (
                         <div key={e.id} style={card}>
-                            <div className="ts-11 text-secondary">✦ {ASPECT_LABEL[e.selfAspect || "nature"] || e.selfAspect} · 确认于 {fmtDate(e.updatedAt)}</div>
+                            <div className="ts-11 text-secondary">已确认 · {ASPECT_LABEL[e.selfAspect || "nature"] || e.selfAspect} · 确认于 {fmtDate(e.updatedAt)}</div>
                             <div className="ts-13" style={{ marginTop: 4, lineHeight: 1.7 }}>{e.content}</div>
                         </div>
                     ))}
@@ -252,7 +247,7 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
                                 <div className="ts-12" style={{ marginTop: 4, lineHeight: 1.7 }}>{e.content}</div>
                                 <div style={{ display: "flex", gap: 4, marginTop: 8, alignItems: "center" }}>
                                     {Array.from({ length: OMBRE_LIMITS.selfPromoteDreams }).map((_, i) => (
-                                        <span key={i} style={{ width: 22, height: 5, borderRadius: 999, background: i < n ? "#7a6ff0" : "var(--c-input, rgba(0,0,0,0.08))" }} />
+                                        <span key={i} style={{ width: 22, height: 5, borderRadius: 999, background: i < n ? "var(--c-text, #111)" : "color-mix(in srgb, var(--c-text, #111) 10%, transparent)" }} />
                                     ))}
                                     <span className="ts-11 text-secondary" style={{ marginLeft: 6 }}>被 dream 见证 {n}/{OMBRE_LIMITS.selfPromoteDreams}</span>
                                 </div>
@@ -278,7 +273,7 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
                                 <div className="ts-13" style={{ marginTop: 4, lineHeight: 1.7 }}>{f.content}</div>
                                 {src && (
                                     <button className="ts-11 text-secondary" style={{ marginTop: 6, background: "transparent", border: "none", padding: 0 }} onClick={() => openEntry(src.id)}>
-                                        ↳ 因为「{src.title || src.content.slice(0, 16)}」
+                                        因为「{src.title || src.content.slice(0, 16)}」
                                     </button>
                                 )}
                             </div>
@@ -332,7 +327,7 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
             {/* 读信 */}
             {reading && (
                 <div className="modal-overlay" data-ui="modal" onClick={() => setReading(null)}>
-                    <div onClick={e => e.stopPropagation()} style={{ width: "min(92vw, 420px)", maxHeight: "78vh", overflowY: "auto", background: "#fffdf8", borderRadius: 16, padding: "22px 20px", color: "#3a3a3a", boxShadow: "0 12px 40px rgba(0,0,0,0.2)" }}>
+                    <div onClick={e => e.stopPropagation()} style={{ ...glass, background: "color-mix(in srgb, var(--c-card, #fff) 88%, transparent)", width: "min(92vw, 420px)", maxHeight: "78vh", overflowY: "auto", padding: "22px 20px", color: "var(--c-text, #111)", boxShadow: "0 12px 40px rgba(0,0,0,0.18)" }}>
                         <div className="ts-11" style={{ opacity: 0.6 }}>{reading.metadata?.letterFrom === "user" ? `你写给${characterName}` : `${characterName} 写的信`} · {fmtDate(reading.createdAt)}</div>
                         <div className="ts-16" style={{ fontWeight: 700, margin: "6px 0 14px" }}>{reading.title}</div>
                         <div className="ts-13" style={{ whiteSpace: "pre-wrap", lineHeight: 1.9 }}>{reading.content}</div>

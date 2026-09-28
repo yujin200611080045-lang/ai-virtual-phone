@@ -1,12 +1,11 @@
 "use client";
 
 import { Component, useState, useEffect, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
-import { Trash2, Zap, Clock, Users, Archive, Wind, Gem, Network, Waves, AlertCircle, Search, Brain, FileText, MoreHorizontal, Plus, Edit3, X, Check, ChevronRight, Filter, Pin, Anchor, Shield, Flame, CircleCheck, RotateCcw, Moon, type LucideIcon } from "lucide-react";
+import { Trash2, Zap, Clock, Users, Archive, Gem, Waves, AlertCircle, Search, Brain, FileText, MoreHorizontal, Plus, Edit3, X, Check, ChevronRight, Filter, Pin, Anchor, Shield, Flame, CircleCheck, RotateCcw, Moon, type LucideIcon } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/modal";
-import { MemoryBreathTab } from "./memory-breath-tab";
 import { MemoryTreasureTab } from "./memory-treasure-tab";
-import { MemoryNetworkTab } from "./memory-network-tab";
 import { MemoryStreamTab } from "./memory-stream-tab";
+import { glass, pill, ghostBtn, solidBtn, tag, barTrack, barFill } from "./memory-ui";
 import { Toggle } from "@/components/ui/form";
 import { loadCharacters } from "@/lib/character-storage";
 import type { Character } from "@/lib/character-types";
@@ -41,7 +40,6 @@ import {
     logMemoryOp,
     memKind,
     ombreScore,
-    ombreScoreBreakdown,
     releaseAnchor,
     textSimilarity,
     traceMemory,
@@ -53,7 +51,7 @@ import { generateEmbedding, resolveEmbeddingModel, cosineSimilarity } from "@/li
 import { BINDING_ACCENTS } from "@/lib/ui-accent-colors";
 
 type MemoryView = "list" | "detail" | "settings";
-type MemoryTab = "breath" | "long" | "treasure" | "network" | "stream";
+type MemoryTab = "long" | "treasure" | "stream";
 type MemoryBudgetKey = "shortTermTokenBudget" | "coreMemoryTokenBudget" | "longTermTokenBudget";
 
 const MEMORY_TOKEN_BUDGET_MAX = 100000;
@@ -130,13 +128,13 @@ type LtFilter = "all" | "core" | "pinned" | "dynamic" | "feel" | "plan" | "lette
 const LT_FILTERS: Array<{ key: LtFilter; label: string }> = [
     { key: "all", label: "全部" },
     { key: "core", label: "核心记忆" },
-    { key: "pinned", label: "📌 核心准则" },
+    { key: "pinned", label: "核心准则" },
     { key: "dynamic", label: "记忆" },
     { key: "feel", label: "感受" },
     { key: "plan", label: "计划" },
     { key: "letter", label: "信" },
     { key: "i", label: "自我认识" },
-    { key: "anchored", label: "⚓ 锚点" },
+    { key: "anchored", label: "锚点" },
     { key: "resolved", label: "已放下" },
     { key: "archived", label: "归档" },
 ];
@@ -218,13 +216,6 @@ function MemorySettingsSliderItem({
     );
 }
 
-// 情绪坐标 → 表情：效价决定正负，唤醒度决定强弱
-function moodEmoji(valence: number, arousal?: number): string {
-    const a = arousal ?? 0.5;
-    if (valence >= 0.35) return a >= 0.6 ? "😄" : "😌";
-    if (valence <= -0.35) return a >= 0.6 ? "😠" : "😔";
-    return a >= 0.6 ? "😮" : "😐";
-}
 
 // 效价 → 色：正面偏绿、负面偏红、中性偏灰
 function valenceColor(valence: number): string {
@@ -273,7 +264,7 @@ type Props = {
 export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }: Props) {
     const [config, setConfig] = useState<MemoryConfig>(loadMemoryConfig);
     const [characters, setCharacters] = useState<CharacterMemoryInfo[]>([]);
-    const [activeTab, setActiveTab] = useState<MemoryTab>("breath");
+    const [activeTab, setActiveTab] = useState<MemoryTab>("long");
     const [ltFilter, setLtFilter] = useState<LtFilter>("all");
     const [ltSort, setLtSort] = useState<"score" | "created">("score");
     const [resplit, setResplit] = useState<{ done: number; total: number; label: string } | null>(null);
@@ -398,7 +389,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
     // Reload detail data when view changes to detail
     useEffect(() => {
         if (view === "detail" && selectedCharId) {
-            setActiveTab("breath");
+            setActiveTab("long");
             setLtFilter("all");
             setExpandedId(null);
             loadDetailData(selectedCharId);
@@ -769,6 +760,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                         </button>
                         <button
                             className="mem-entry-clear-btn"
+                            style={{ ...glass, borderRadius: 999, color: "var(--c-text, #111)" }}
                             onClick={() => setConfirmClearAll(true)}
                         >
                             <Trash2 size={15} strokeWidth={1.8} />
@@ -798,6 +790,10 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                             id={`mem-${entry.id}`}
                             className={`g-card memory-report-card${entryMenuId === entry.id ? " is-menu-open" : ""}`}
                             style={{
+                                background: glass.background,
+                                backdropFilter: glass.backdropFilter,
+                                WebkitBackdropFilter: glass.WebkitBackdropFilter,
+                                border: glass.border,
                                 ...(entry.metadata?.archived ? { opacity: 0.5 } : {}),
                                 ...(typeof entry.valence === "number" ? { borderLeft: `3px solid ${valenceColor(entry.valence)}` } : {}),
                             }}
@@ -813,9 +809,12 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                 <span className="ts-11 text-secondary" style={{ letterSpacing: "1px" }}>[ DATE: {relativeTime(entry.createdAt)} ]</span>
                                 <div className="mem-report-actions">
                                     {type === "long_term" && (
-                                        <span className="ts-11" style={{ letterSpacing: 1, whiteSpace: "nowrap" }}>
-                                            {entry.pinned ? "📌" : ""}{entry.anchored ? "⚓" : ""}{entry.protected ? "🛡" : ""}{entry.resolved ? "✓" : ""}
-                                            {memKind(entry) !== "dynamic" ? ` ${KIND_LABEL[memKind(entry)]}` : ""}
+                                        <span style={{ display: "inline-flex", gap: 4 }}>
+                                            {entry.pinned && <span style={tag}>核心准则</span>}
+                                            {entry.anchored && <span style={tag}>锚点</span>}
+                                            {entry.protected && <span style={tag}>受保护</span>}
+                                            {entry.resolved && <span style={tag}>已放下</span>}
+                                            {memKind(entry) !== "dynamic" && <span style={tag}>{KIND_LABEL[memKind(entry)]}</span>}
                                         </span>
                                     )}
                                     <span className={`mem-origin-badge ${isManualMemoryEntry(entry) ? "is-manual" : ""}`}>
@@ -908,13 +907,11 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                             {(entry.title || typeof entry.valence === "number" || (entry.tags && entry.tags.length > 0)) && (
                                 <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, margin: "2px 0 8px" }}>
                                     {typeof entry.valence === "number" && (
-                                        <span title={`情绪 ${entry.valence.toFixed(2)} / 强度 ${(entry.arousal ?? 0).toFixed(2)}`} style={{ fontSize: 14 }}>
-                                            {moodEmoji(entry.valence, entry.arousal)}
-                                        </span>
+                                        <span title={`情绪 ${entry.valence.toFixed(2)} / 强度 ${(entry.arousal ?? 0).toFixed(2)}`} style={{ width: 8, height: 8, borderRadius: 999, background: valenceColor(entry.valence), flexShrink: 0 }} />
                                     )}
                                     {entry.title && <span className="ts-12" style={{ fontWeight: 600 }}>{entry.title}</span>}
                                     {(entry.tags || []).map((t) => (
-                                        <span key={t} className="ts-11" style={{ padding: "1px 8px", borderRadius: 999, background: "var(--c-input, rgba(0,0,0,0.06))", color: "var(--c-text-secondary, #888)" }}>{t}</span>
+                                        <span key={t} style={{ ...tag, color: "var(--c-text-secondary, #888)" }}>{t}</span>
                                     ))}
                                 </div>
                             )}
@@ -934,8 +931,8 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                     <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 8px" }}>
                                         <span className="ts-11 text-secondary" style={{ whiteSpace: "nowrap" }}>{status ? "状态" : "权重"}</span>
                                         {!status && (
-                                            <span style={{ flex: 1, height: 4, borderRadius: 999, background: "var(--c-input, rgba(0,0,0,0.08))", overflow: "hidden", maxWidth: 120 }}>
-                                                <span style={{ display: "block", height: "100%", width: `${Math.round(ratio * 100)}%`, background: fixed ? "#7a6ff0" : ratio > 0.3 ? "#3aa76d" : ratio > 0.08 ? "#e0a020" : "#c96", borderRadius: 999 }} />
+                                            <span style={{ ...barTrack, flex: 1, maxWidth: 120 }}>
+                                                <span style={{ ...barFill(ratio), opacity: fixed ? 1 : 0.35 + ratio * 0.65 }} />
                                             </span>
                                         )}
                                         <span className="ts-11 text-secondary" style={{ whiteSpace: "nowrap" }}>
@@ -957,7 +954,6 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                 }
                             </div>
                             {expandedId === entry.id && type === "long_term" && (() => {
-                                const b = ombreScoreBreakdown(entry);
                                 const hasCoord = typeof entry.valence === "number";
                                 const vx = hasCoord ? ((entry.valence as number) + 1) / 2 : 0.5;
                                 const vy = 1 - (typeof entry.arousal === "number" ? (entry.arousal as number) : 0.5);
@@ -972,7 +968,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                     <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed var(--c-border, rgba(0,0,0,0.08))" }} onClick={event => event.stopPropagation()}>
                                         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "flex-start" }}>
                                             {/* 情绪二维坐标小图 */}
-                                            <div style={{ flexShrink: 0 }}>
+                                            {hasCoord && <div style={{ flexShrink: 0 }}>
                                                 <div style={{ position: "relative", width: 76, height: 76, borderRadius: 8, background: "var(--c-input, rgba(0,0,0,0.05))", overflow: "hidden" }}>
                                                     <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 1, background: "rgba(0,0,0,0.1)" }} />
                                                     <div style={{ position: "absolute", top: 0, bottom: 0, left: "50%", width: 1, background: "rgba(0,0,0,0.1)" }} />
@@ -981,7 +977,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                                     )}
                                                 </div>
                                                 <div className="ts-11 text-secondary" style={{ textAlign: "center", marginTop: 3 }}>情绪坐标</div>
-                                            </div>
+                                            </div>}
                                             {/* 数值明细 */}
                                             <div className="ts-11 text-secondary" style={{ flex: 1, minWidth: 150, lineHeight: 1.9 }}>
                                                 <div>效价：<b style={strong}>{hasCoord ? (entry.valence as number).toFixed(2) : "—"}</b>　唤醒：<b style={strong}>{typeof entry.arousal === "number" ? (entry.arousal as number).toFixed(2) : "—"}</b>　重要度：<b style={strong}>{imp10(entry)}/10</b></div>
@@ -993,24 +989,12 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                                 {(entry.tags && entry.tags.length > 0) && <div>标签：{entry.tags.join("、")}</div>}
                                             </div>
                                         </div>
-                                        {/* Breath 调试：衰减分拆解 */}
-                                        <div className="ts-11 text-secondary" style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "var(--c-input, rgba(0,0,0,0.04))", lineHeight: 1.8, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
-                                            {b.shortCircuit ? (
-                                                <div>权重 = <b style={strong}>{scoreLabel(b.score)}</b>（{b.shortCircuit}，不走衰减公式）</div>
-                                            ) : (
-                                                <>
-                                                    <div>权重 = 重要度 {b.importance} × 激活^0.3 {Math.pow(b.activation ?? 1, 0.3).toFixed(2)} × e^(-0.05×{(b.daysSince ?? 0).toFixed(1)}天) {(b.decay ?? 0).toFixed(3)}</div>
-                                                    <div>　× 综合权重 {(b.combinedWeight ?? 0).toFixed(2)}（时间 {(b.timeWeight ?? 0).toFixed(2)} / 情感 {(b.emotionWeight ?? 0).toFixed(2)}，{(b.daysSince ?? 0) <= 3 ? "短期·时间主导" : "长期·情感主导"}）</div>
-                                                    <div>　× 结案 {b.resolvedFactor} × 紧迫 {b.urgencyBoost} = <b style={strong}>{scoreLabel(b.score)}</b>{b.score < (config.decayArchiveThreshold ?? 0.3) ? "　（低于归档线）" : ""}</div>
-                                                </>
-                                            )}
-                                        </div>
                                         {entry.whyRemembered && <div className="ts-12" style={{ marginTop: 8 }}>为什么记得：{entry.whyRemembered}</div>}
                                         {entry.meaning && <div className="ts-12" style={{ marginTop: 4 }}>对我意味着：{entry.meaning}</div>}
                                         {entry.resolutionSuggestion && memKind(entry) === "plan" && (entry.planStatus ?? "active") === "active" && (
-                                            <div className="ts-12" style={{ marginTop: 6 }}>🔔 可能已完成（置信 {entry.resolutionSuggestion.confidence.toFixed(2)}）{entry.resolutionSuggestion.reason ? `：${entry.resolutionSuggestion.reason}` : ""}</div>
+                                            <div className="ts-12" style={{ marginTop: 6 }}>可能已完成（置信 {entry.resolutionSuggestion.confidence.toFixed(2)}）{entry.resolutionSuggestion.reason ? `：${entry.resolutionSuggestion.reason}` : ""}</div>
                                         )}
-                                        {typeof meta.anchorReason === "string" && <div className="ts-12" style={{ marginTop: 4 }}>⚓ {meta.anchorReason}</div>}
+                                        {typeof meta.anchorReason === "string" && <div className="ts-12" style={{ marginTop: 4 }}>设为锚点：{meta.anchorReason}</div>}
                                         {excerpt && (
                                             <details style={{ marginTop: 8 }}>
                                                 <summary className="ts-11 text-secondary">原话</summary>
@@ -1054,14 +1038,6 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                         <p className="text-center ts-14 mt-10 text-secondary">
                             加载中...
                         </p>
-                    ) : activeTab === "breath" ? (
-                        <MemoryBreathTab
-                            characterId={selectedCharId!}
-                            entries={longTermEntries}
-                            coreEntries={coreEntries}
-                            config={config}
-                            openEntry={openEntry}
-                        />
                     ) : activeTab === "treasure" ? (
                         <MemoryTreasureTab
                             characterId={selectedCharId!}
@@ -1071,8 +1047,6 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                             notice={showNotice}
                             openEntry={openEntry}
                         />
-                    ) : activeTab === "network" ? (
-                        <MemoryNetworkTab entries={longTermEntries} openEntry={openEntry} />
                     ) : activeTab === "stream" ? (
                         <MemoryStreamTab
                             characterId={selectedCharId!}
@@ -1087,30 +1061,21 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                     ) : (
                         /* ── Long-term: Summarized Memories ── */
                         <>
-                            <input
-                                value={ltSearch}
-                                onChange={(e) => setLtSearch(e.target.value)}
-                                placeholder="搜索记忆（内容 / 标题 / 标签）"
-                                className="ts-12"
-                                style={{ flexShrink: 0, width: "100%", padding: "8px 12px", borderRadius: 10, border: "1px solid var(--c-border, rgba(0,0,0,0.1))", background: "var(--c-input, rgba(0,0,0,0.03))", color: "var(--c-text, #333)", margin: "0 0 8px" }}
-                            />
                             {(() => {
                                 const legacyN = longTermEntries.filter(isLegacySummary).length;
                                 if (!resplit && legacyN === 0) return null;
                                 return (
-                                    <div className="ts-12" style={{ flexShrink: 0, margin: "0 0 8px", padding: "10px 12px", borderRadius: 12, background: "rgba(224,160,32,0.12)", lineHeight: 1.6 }}>
+                                    <div className="ts-12" style={{ ...glass, flexShrink: 0, margin: "0 0 8px", padding: "10px 12px", lineHeight: 1.6 }}>
                                         {resplit ? (
                                             <>
                                                 <div>正在拆第 {Math.min(resplit.total, resplit.done + 1)} / {resplit.total} 段{resplit.label ? `：${resplit.label}` : ""}…</div>
-                                                <div style={{ height: 5, borderRadius: 999, background: "rgba(0,0,0,0.08)", overflow: "hidden", margin: "6px 0" }}>
-                                                    <div style={{ height: "100%", width: `${Math.round((resplit.done / Math.max(1, resplit.total)) * 100)}%`, background: "#e0a020", transition: "width .3s" }} />
-                                                </div>
-                                                <button className="ts-12" style={{ padding: "3px 10px", borderRadius: 999, border: "1px solid rgba(0,0,0,0.15)", background: "transparent" }} onClick={() => { resplitSignal.current.cancelled = true; }}>拆完这一段就停</button>
+                                                <div style={{ ...barTrack, margin: "6px 0" }}><div style={barFill(resplit.done / Math.max(1, resplit.total))} /></div>
+                                                <button className="ts-12" style={ghostBtn} onClick={() => { resplitSignal.current.cancelled = true; }}>拆完这一段就停</button>
                                             </>
                                         ) : (
                                             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                                                 <span style={{ flex: 1 }}>有 {legacyN} 条以前「一段一总结」的成段记忆。拆成细节会回到当时的原始聊天重新提取，原来那段归档保留。</span>
-                                                <button className="ts-12" style={{ flexShrink: 0, padding: "4px 12px", borderRadius: 999, border: "none", background: "#e0a020", color: "#fff", fontWeight: 600 }} onClick={() => void runResplit()}>全部拆开</button>
+                                                <button className="ts-12" style={{ ...solidBtn, flexShrink: 0 }} onClick={() => void runResplit()}>全部拆开</button>
                                             </div>
                                         )}
                                     </div>
@@ -1125,7 +1090,7 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                         <button
                                             key={f.key}
                                             className="ts-11"
-                                            style={{ flexShrink: 0, whiteSpace: "nowrap", lineHeight: 1.4, padding: "4px 10px", borderRadius: 999, border: "1px solid var(--c-border, rgba(0,0,0,0.1))", background: on ? "var(--c-text, #333)" : "transparent", color: on ? "var(--c-bg, #fff)" : "var(--c-text-secondary, #888)" }}
+                                            style={pill(on)}
                                             onClick={() => setLtFilter(f.key)}
                                         >
                                             {f.label} {n}
@@ -1139,10 +1104,10 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                 const anchorN = active.filter(e => e.anchored).length;
                                 return (
                                     <div className="ts-11 text-secondary" style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 0 10px" }}>
-                                        <span>📌 {pinnedN}/{OMBRE_LIMITS.maxPinned}　⚓ {anchorN}/{OMBRE_LIMITS.maxAnchors}　活跃 {active.length}</span>
+                                        <span>核心准则 {pinnedN}/{OMBRE_LIMITS.maxPinned}　锚点 {anchorN}/{OMBRE_LIMITS.maxAnchors}　共 {active.length} 条</span>
                                         <button
-                                            className="ts-11 text-secondary"
-                                            style={{ padding: "2px 8px", borderRadius: 999, border: "1px solid var(--c-border, rgba(0,0,0,0.1))", background: "transparent" }}
+                                            className="ts-11"
+                                            style={{ ...ghostBtn, padding: "2px 10px" }}
                                             onClick={() => setLtSort(v => v === "score" ? "created" : "score")}
                                         >
                                             {ltSort === "score" ? "按权重" : "按时间"}
@@ -1178,11 +1143,9 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                 {/* Bottom tab bar — floating above bottom */}
                 <div className="chat-tab-bar" style={{ position: "absolute", bottom: 40, left: 40, right: 40, zIndex: 10, borderRadius: 28, borderTop: "none", padding: "10px 0" }}>
                     {([
-                        { key: "breath" as const, icon: Wind, label: "浮现" },
                         { key: "long" as const, icon: Archive, label: "记忆" },
                         { key: "treasure" as const, icon: Gem, label: "珍藏" },
-                        { key: "network" as const, icon: Network, label: "网络" },
-                        { key: "stream" as const, icon: Waves, label: "流水" },
+                        { key: "stream" as const, icon: Waves, label: "原始记录" },
                     ]).map(tab => (
                         <button
                             key={tab.key}

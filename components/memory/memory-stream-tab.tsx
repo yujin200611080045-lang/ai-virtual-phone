@@ -3,7 +3,8 @@
 // 流水：原始事件（短期 + 共享事件合并）/ 导入历史聊天 / 操作日志
 
 import { useMemo, useRef, useState } from "react";
-import { Upload, Zap } from "lucide-react";
+import { Upload, Zap, MoreHorizontal, ArrowLeft } from "lucide-react";
+import { glassCard, ghostBtn, pill, barTrack, barFill } from "./memory-ui";
 import type { NativeTimelineEntry } from "@/lib/short-term-assembler";
 import { MemoryTimeline } from "./memory-timeline";
 import { extractFromEvents, hasMemoryLLM, loadMemoryLog, chunkText } from "@/lib/memory-ombre";
@@ -27,14 +28,8 @@ const SOURCE_LABELS: Record<string, string> = {
     game: "小游戏", vn: "漫卷", adventure: "地图冒险", custom_app: "自定义应用",
 };
 
-const card = { background: "var(--c-card, #fff)", borderRadius: 14, padding: "12px 14px", flexShrink: 0 } as const;
-const pill = (on: boolean) => ({
-    flexShrink: 0, whiteSpace: "nowrap" as const, padding: "5px 12px", borderRadius: 999, lineHeight: 1.4,
-    border: "1px solid var(--c-border, rgba(0,0,0,0.1))",
-    background: on ? "var(--c-text, #333)" : "transparent",
-    color: on ? "var(--c-bg, #fff)" : "var(--c-text-secondary, #888)",
-});
-const btn = { display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 12px", borderRadius: 999, border: "1px solid var(--c-border, rgba(0,0,0,0.12))", background: "transparent", color: "var(--c-text, #333)" } as const;
+const card = glassCard;
+const btn = ghostBtn;
 
 /** 把各家导出的 JSON 摊平成「说话人：内容」逐行文本。认 role/sender/author/name + content/text/message/parts。 */
 function flattenJson(value: unknown, out: string[] = [], depth = 0): string[] {
@@ -71,6 +66,7 @@ export function MemoryStreamTab({ characterId, userName, events, extracting, onE
     const [importResult, setImportResult] = useState<string | null>(null);
     const signal = useRef({ cancelled: false });
     const [logTick, setLogTick] = useState(0);
+    const [menuOpen, setMenuOpen] = useState(false);
 
     const sources = useMemo(() => {
         const m = new Map<string, number>();
@@ -118,16 +114,25 @@ export function MemoryStreamTab({ characterId, userName, events, extracting, onE
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingBottom: 130 }}>
-            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                {([["stream", "流水"], ["import", "导入"], ["log", "日志"]] as const).map(([k, l]) => (
-                    <button key={k} className="ts-12" style={pill(section === k)} onClick={() => setSection(k)}>{l}</button>
-                ))}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, position: "relative" }}>
+                {section === "stream" ? (
+                    <span className="ts-12 text-secondary">当时的原话。记忆就是从这里提取出来的。</span>
+                ) : (
+                    <button className="ts-12" style={btn} onClick={() => setSection("stream")}><ArrowLeft size={12} /> 原始记录</button>
+                )}
+                <button className="ts-12" style={{ ...btn, padding: "5px 9px" }} aria-label="更多" onClick={() => setMenuOpen(v => !v)}><MoreHorizontal size={15} /></button>
+                {menuOpen && (
+                    <div style={{ ...glassCard, position: "absolute", right: 0, top: 36, zIndex: 20, padding: 6, display: "flex", flexDirection: "column", minWidth: 150, boxShadow: "0 8px 30px rgba(0,0,0,0.12)" }}>
+                        {([["import", "导入以前的聊天"], ["log", "操作日志"]] as const).map(([k, l]) => (
+                            <button key={k} className="ts-13" style={{ textAlign: "left", padding: "9px 10px", background: "transparent", border: "none", color: "var(--c-text, #111)", borderRadius: 10 }} onClick={() => { setSection(k); setMenuOpen(false); }}>{l}</button>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {section === "stream" && (
                 <>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                        <span className="ts-12 text-secondary">记忆是从这些原始事件里提取出来的。</span>
+                    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, flexShrink: 0 }}>
                         <button className="ts-12" style={{ ...btn, flexShrink: 0 }} onClick={onExtractNow} disabled={extracting}>
                             <Zap size={12} /> {extracting ? "提取中…" : "现在提取"}
                         </button>
@@ -170,9 +175,7 @@ export function MemoryStreamTab({ characterId, userName, events, extracting, onE
                     </div>
                     {progress && (
                         <div style={{ marginTop: 10 }}>
-                            <div style={{ height: 6, borderRadius: 999, background: "var(--c-input, rgba(0,0,0,0.08))", overflow: "hidden" }}>
-                                <div style={{ height: "100%", width: `${Math.round((progress.done / Math.max(1, progress.total)) * 100)}%`, background: "#3aa76d", transition: "width .3s" }} />
-                            </div>
+                            <div style={barTrack}><div style={barFill(progress.done / Math.max(1, progress.total))} /></div>
                             <div className="ts-11 text-secondary" style={{ marginTop: 4 }}>正在读第 {Math.min(progress.total, progress.done + 1)} / {progress.total} 块…</div>
                         </div>
                     )}
