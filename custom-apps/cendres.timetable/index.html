@@ -1,0 +1,1501 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>课程表</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs" type="module"></script>
+<style>
+  :root{
+    --ink:#141414; --sub:#8a8a8f; --line:rgba(20,20,20,.08);
+    --glass:rgba(255,255,255,.55); --glass-strong:rgba(255,255,255,.72);
+    --red:#e5342b; --bg:#f6f6f7;
+    --rowh:78px;   /* 每一节的固定行高 */
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:-apple-system,"PingFang SC","Noto Sans SC",system-ui,sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(120% 80% at 15% 0%, #fdfdfe 0%, var(--bg) 60%),
+      var(--bg);
+    display:flex; flex-direction:column; height:100%;
+  }
+  /* top bar */
+  .top{
+    display:flex;align-items:flex-end;gap:10px;   /* 贴到安全带底部，和宿主的 ··· ○ 一条线 */
+    min-height:var(--ai-phone-app-safe-top,88px);
+    padding-left:var(--ai-phone-app-safe-left,18px);
+    padding-right:calc(var(--ai-phone-app-safe-right,16px) + 76px);  /* 右侧让开 ··· ○ */
+    padding-bottom:4px;
+  }
+  .top h1{font-size:19px;font-weight:600;margin:0;letter-spacing:.5px;line-height:1}
+  .wk{font-size:12px;color:var(--sub);padding:3px 0 2px var(--ai-phone-app-safe-left,18px)}
+  .top .sp{flex:1}
+  .iconbtn{
+    width:36px;height:36px;border:0;border-radius:12px;cursor:pointer;
+    background:var(--glass);backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);
+    box-shadow:0 1px 0 rgba(255,255,255,.6) inset,0 2px 10px rgba(20,20,20,.05);
+    display:grid;place-items:center;color:var(--ink);font-size:18px;
+  }
+  .iconbtn:active{transform:scale(.94)}
+
+  /* grid */
+  .wrap{flex:1;overflow:auto;padding:6px 12px 24px}
+  table{width:100%;border-collapse:separate;border-spacing:6px;table-layout:fixed}
+  th{padding:0;vertical-align:top;position:sticky;top:0;z-index:5}   /* 星期表头吸顶：上滑时钉住不动 */
+  th.day,th.corner{background:rgba(246,246,247,.92);backdrop-filter:blur(8px) saturate(150%);-webkit-backdrop-filter:blur(8px) saturate(150%)}
+  td{padding:0;position:relative;height:var(--rowh);}   /* 每节固定等高 → 节次均匀，方框按占几节撑高 */
+  th.day{
+    font-size:12px;font-weight:600;color:var(--ink);text-align:center;padding:6px 0 8px;
+  }
+  th.day small{display:block;color:var(--sub);font-weight:400;font-size:10.5px;margin-top:1px}
+  th.day span{display:inline-block;padding:3px 12px;border-radius:999px;line-height:1.4}
+  th.day.on span{background:var(--ink);color:#fff}   /* 今天 / 所看那天：黑底白字（周视图和单日一致） */
+  .daybar th{position:static}                         /* 单日的星期轴不吸顶 */
+  th.corner{width:38px}
+  td.per{
+    width:38px;font-size:10.5px;color:var(--sub);text-align:center;vertical-align:middle;line-height:1.15;
+  }
+  td.per b{display:block;color:var(--ink);font-size:12px;font-weight:600}
+  td.per .pt{display:block;font-size:9px;font-style:normal;font-weight:500;color:var(--sub);line-height:1.3}
+  td.per .pt.e{opacity:.68}
+  .cell{
+    position:absolute;inset:0;   /* 填满它所占的行（1节=1行高，2节=2行高） */
+    border-radius:14px;
+    background:var(--glass);
+    backdrop-filter:blur(12px) saturate(150%);-webkit-backdrop-filter:blur(12px) saturate(150%);
+    border:1px solid var(--line);
+    box-shadow:0 1px 0 rgba(255,255,255,.55) inset;
+    padding:6px 7px;overflow:hidden;cursor:pointer;
+    display:flex;flex-direction:column;gap:2px;
+  }
+  .cell.empty{background:rgba(255,255,255,.28);border-style:dashed;border-color:rgba(20,20,20,.06)}
+  .cell .nm{font-size:13.5px;font-weight:600;line-height:1.25;word-break:break-word}  /* 课名完整显示 */
+  .cell .lo{font-size:10.5px;color:var(--sub);line-height:1.2;word-break:break-word;margin-top:auto}  /* 教室完整显示 */
+  /* 当前正在上的那节课：磨砂毛玻璃凸起（无红色） */
+  .cell.now{
+    background:rgba(255,255,255,.94);
+    backdrop-filter:blur(24px) saturate(190%);-webkit-backdrop-filter:blur(24px) saturate(190%);
+    border-color:rgba(255,255,255,.95);
+    box-shadow:0 10px 28px rgba(20,20,20,.18),0 0 0 1px rgba(20,20,20,.05),0 0 0 1px rgba(255,255,255,.9) inset;
+    transform:scale(1.04);z-index:1;
+  }
+  /* 本周还没开课/已结束的课：灰掉，表示这周不用上 */
+  .cell.off{opacity:.42;filter:grayscale(.55)}
+  .cell.off .nm{color:var(--sub)}
+  /* 6/7天密集视图：收紧间距与字号，一屏铺满不横滑 */
+  .ttbl.dense{border-spacing:4px}
+  .ttbl.dense th.day{font-size:11px;padding:5px 0 6px}
+  .ttbl.dense th.day small{font-size:9.5px}
+  .ttbl.dense th.day span{padding:2px 8px}
+  .ttbl.dense th.corner{width:32px}
+  .ttbl.dense td.per{width:32px;font-size:9.5px}
+  .ttbl.dense td.per b{font-size:11px}
+  .ttbl.dense td.per .pt{font-size:8px;line-height:1.25}
+  /* ===== 单日时间轴视图 ===== */
+  #dayView{padding:0 0 24px}
+  .daybar{margin-bottom:6px}
+  .daytabs{display:flex;gap:6px;padding:0 6px 14px}   /* 星期切换条：跟着内容一起滚，不吸顶 */
+  .daytabs .tab{
+    flex:1;height:42px;border-radius:12px;border:1px solid var(--line);
+    background:rgba(255,255,255,.6);font-size:13px;font-weight:600;color:var(--sub);
+    display:grid;place-items:center;cursor:pointer;
+  }
+  .daytabs.d7{gap:4px}
+  .daytabs.d7 .tab{height:38px;font-size:12px;border-radius:10px}
+  .daytabs .tab.today{color:var(--red)}
+  .daytabs .tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .daytabs .tab.on.today{color:#fff}
+  .tl{position:relative}
+  .tlper{
+    position:absolute;left:0;width:48px;display:flex;flex-direction:column;
+    justify-content:center;align-items:center;color:var(--sub);font-size:10px;line-height:1.25;
+  }
+  .tlper b{color:var(--ink);font-size:13px;font-weight:600}
+  .tlper i{font-style:normal;font-size:9px}
+  .tlper i.e{opacity:.68}
+  .railbase{position:absolute;left:63px;top:10px;bottom:10px;width:2px;border-radius:2px;background:rgba(20,20,20,.06)}
+  .tlseg{position:absolute;left:61px;width:6px;border-radius:4px;background:var(--ink);opacity:.9}
+  .tlnode{position:absolute;left:57px;width:14px;height:14px;border-radius:50%;background:var(--ink);border:3px solid var(--bg);box-sizing:border-box}
+  .tlconn{position:absolute;left:70px;height:2px;background:rgba(20,20,20,.22)}
+  .tlcard{
+    position:absolute;left:92px;right:8px;border-radius:16px;
+    background:var(--glass);backdrop-filter:blur(12px) saturate(150%);-webkit-backdrop-filter:blur(12px) saturate(150%);
+    border:1px solid var(--line);box-shadow:0 1px 0 rgba(255,255,255,.55) inset,0 4px 16px rgba(20,20,20,.05);
+    padding:11px 13px;overflow:hidden;cursor:pointer;display:flex;flex-direction:column;gap:3px;
+  }
+  .tlcard .nm{font-size:14px;font-weight:600;line-height:1.25;word-break:break-word}
+  .tlcard .lo{font-size:11px;color:var(--sub);line-height:1.2;word-break:break-word;margin-top:auto}
+  .tlcard.has{border-color:rgba(20,20,20,.55)}   /* 有未完成任务：细黑线描边（1px，淡一点） */
+  .tlcard.now{
+    background:rgba(255,255,255,.94);backdrop-filter:blur(24px) saturate(190%);-webkit-backdrop-filter:blur(24px) saturate(190%);
+    border-color:rgba(255,255,255,.95);
+    box-shadow:0 10px 28px rgba(20,20,20,.18),0 0 0 1px rgba(20,20,20,.05),0 0 0 1px rgba(255,255,255,.9) inset;
+    transform:scale(1.03);z-index:2;   /* 和周视图一样：凸起放大 */
+  }
+  .tlcard.off{opacity:.44;filter:grayscale(.5)} .tlcard.off .nm{color:var(--sub)}
+  .tlseg.off,.tlnode.off{opacity:.32}
+  .tladd{position:absolute;left:92px;right:8px;border-radius:14px;border:1px dashed rgba(20,20,20,.07);background:rgba(255,255,255,.22);cursor:pointer}
+  .tladd:active{background:rgba(255,255,255,.4)}
+  #grid.dense .cell{padding:5px 4px}
+  #grid.dense .cell .nm{font-size:11px;line-height:1.18}
+  #grid.dense .cell .lo{font-size:9px}
+
+  /* bottom bar */
+  .bar{
+    display:flex;gap:10px;padding:10px 16px calc(14px + env(safe-area-inset-bottom,0));
+    background:linear-gradient(to top, rgba(246,246,247,.9), rgba(246,246,247,0));
+  }
+  .btn{
+    flex:1;height:44px;border:0;border-radius:14px;cursor:pointer;font-size:14px;font-weight:600;
+    background:var(--glass-strong);backdrop-filter:blur(16px) saturate(160%);-webkit-backdrop-filter:blur(16px) saturate(160%);
+    border:1px solid var(--line);color:var(--ink);
+    box-shadow:0 1px 0 rgba(255,255,255,.6) inset,0 4px 14px rgba(20,20,20,.06);
+  }
+  .btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .btn:active{transform:scale(.97)}
+
+  /* modal */
+  .mask{position:fixed;inset:0;background:rgba(20,20,20,.28);backdrop-filter:blur(4px);display:none;align-items:flex-end;z-index:20}
+  .mask.on{display:flex}
+  .sheet{
+    width:100%;background:rgba(255,255,255,.86);backdrop-filter:blur(30px) saturate(180%);-webkit-backdrop-filter:blur(30px) saturate(180%);
+    border-radius:22px 22px 0 0;padding:18px 18px calc(20px + env(safe-area-inset-bottom,0));
+    box-shadow:0 -8px 40px rgba(20,20,20,.18);animation:up .26s cubic-bezier(.16,1,.3,1);
+  }
+  @keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}
+  .sheet h2{margin:0 0 14px;font-size:16px;font-weight:600}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12px;color:var(--sub);margin-bottom:5px}
+  .field input,.field select,.field textarea{
+    width:100%;border:1px solid var(--line);border-radius:12px;padding:11px 12px;font-size:14px;
+    background:rgba(255,255,255,.7);color:var(--ink);font-family:inherit;outline:none;
+  }
+  .field textarea{min-height:120px;resize:vertical;line-height:1.5}
+  .row2{display:flex;gap:10px}.row2>*{flex:1}
+  .sheet .acts{display:flex;gap:10px;margin-top:6px}
+  .hint{font-size:12px;color:var(--sub);line-height:1.6;margin:2px 0 12px}
+  .del{color:var(--red);background:transparent;border:1px solid rgba(229,52,43,.35)}
+  .seg{display:flex;gap:6px;margin-bottom:12px}
+  .seg button{flex:1;height:36px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.6);font-size:13px;font-weight:600;color:var(--sub)}
+  .seg button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .loading{display:none;text-align:center;color:var(--sub);font-size:13px;padding:8px}
+  .qkrow{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+  .qktxt{flex:1;font-size:13px;line-height:1.3;word-break:break-word}
+  .qksel{flex:0 0 auto;max-width:46%;border:1px solid var(--line);border-radius:10px;padding:8px 9px;background:rgba(255,255,255,.7);font-size:12px;color:var(--ink);font-family:inherit;outline:none}
+  .loading.on{display:block}
+  .minibtn{font-size:11px;font-weight:600;color:var(--red);background:transparent;border:1px solid rgba(229,52,43,.35);border-radius:8px;padding:2px 8px;margin-left:6px;cursor:pointer;vertical-align:middle}
+  th.day{cursor:pointer}
+  th.day.solo{color:var(--red)}
+  /* tappable title (opens settings) */
+  .titlebtn{border:0;background:transparent;padding:0;margin:0;text-align:left;cursor:pointer;color:inherit;font-family:inherit}
+  .titlebtn:active{opacity:.6}
+  .caret{font-size:14px;color:var(--sub);vertical-align:middle}
+  /* settings menu rows */
+  .menu{display:flex;flex-direction:column;gap:8px;margin-bottom:6px;max-height:56vh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding-right:2px}
+  .menu .item.on{border-color:var(--ink);box-shadow:0 0 0 1.5px var(--ink) inset}
+  .menu .item{
+    display:flex;align-items:center;gap:12px;width:100%;text-align:left;flex:0 0 auto;
+    height:52px;padding:0 14px;border-radius:14px;border:1px solid var(--line);cursor:pointer;
+    background:rgba(255,255,255,.7);color:var(--ink);font-size:14.5px;font-weight:600;font-family:inherit;
+  }
+  .menu .item:active{transform:scale(.985)}
+  .menu .item .ic{font-size:18px;width:22px;text-align:center}
+  .menu .item .sub{margin-left:auto;font-size:12px;font-weight:500;color:var(--sub)}
+  .menu .item.danger{color:var(--red);border-color:rgba(229,52,43,.3)}
+  /* character pick list */
+  .picklist{display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow:auto;margin-bottom:10px}
+  .picklist .p{
+    display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;
+    border:1px solid var(--line);background:rgba(255,255,255,.7);cursor:pointer;font-size:14px;
+  }
+  .picklist .p.sel{border-color:var(--ink);box-shadow:0 0 0 1.5px var(--ink) inset}
+  .picklist .p .av{width:30px;height:30px;border-radius:50%;object-fit:cover;background:#ddd;flex:0 0 auto}
+  /* 课程任务/作业框：屏幕居中、磨砂圆角 */
+  .cell.has{border-color:rgba(20,20,20,.55)}   /* 有未完成任务：细黑线描边（1px，淡一点） */
+  .mask.center{align-items:center;justify-content:center;padding:20px}
+  .card{
+    width:100%;max-width:360px;max-height:78vh;overflow:auto;
+    background:rgba(255,255,255,.72);backdrop-filter:blur(34px) saturate(185%);-webkit-backdrop-filter:blur(34px) saturate(185%);
+    border-radius:24px;padding:20px 18px 16px;
+    box-shadow:0 26px 70px rgba(20,20,20,.30),0 0 0 1px rgba(255,255,255,.6) inset;
+    animation:pop .24s cubic-bezier(.16,1,.3,1);
+  }
+  @keyframes pop{from{transform:scale(.92);opacity:.3}to{transform:none;opacity:1}}
+  .card-h{display:flex;align-items:flex-start;gap:8px}
+  .card-title{font-size:17px;font-weight:700;flex:1;line-height:1.25}
+  .card-edit{width:32px;height:32px;flex:0 0 auto;border:0;border-radius:10px;background:rgba(255,255,255,.7);border:1px solid var(--line);font-size:15px;cursor:pointer;color:var(--ink)}
+  .card-sub{font-size:12px;color:var(--sub);margin:3px 0 14px}
+  .tk-list{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+  .tk-list.editing{}
+  .tk{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:14px;background:rgba(255,255,255,.66);border:1px solid var(--line);cursor:pointer;font-size:14px}
+  .tk .box{width:20px;height:20px;border-radius:6px;border:1.5px solid var(--sub);flex:0 0 auto;display:grid;place-items:center;font-size:12px;color:#fff}
+  .tk .txt{flex:1;word-break:break-word;line-height:1.3}
+  .tk .del{margin-left:6px;color:var(--red);font-size:16px;background:transparent;border:0;cursor:pointer;display:none}
+  .tk-list.editing .del{display:block}
+  .tk.done{opacity:.5}
+  .tk.done .txt{text-decoration:line-through;color:var(--sub)}
+  .tk.done .box{background:var(--ink);border-color:var(--ink)}
+  .tk-empty{font-size:13px;color:var(--sub);text-align:center;padding:16px 8px;line-height:1.6}
+  .tk-add{display:flex;gap:8px;margin-bottom:12px}
+  .tk-add input{flex:1;min-width:0;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14px;background:rgba(255,255,255,.7);font-family:inherit;color:var(--ink);outline:none}
+  .tk-add button{flex:0 0 auto;border:0;border-radius:12px;background:var(--ink);color:#fff;padding:0 16px;font-weight:600;cursor:pointer}
+  .picklist .p .tick{margin-left:auto;color:var(--ink)}
+  .cell,.tlcard{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+</style>
+</head>
+<body>
+  <div class="top">
+    <button id="btnSet" class="titlebtn"><h1>课程表 <span class="caret">⌄</span></h1></button>
+    <div class="sp"></div>
+  </div>
+  <div class="wk" id="todayLine"></div>
+
+  <div class="wrap"><table id="grid" class="ttbl"></table><div id="dayView" hidden></div></div>
+
+
+  <!-- add/edit sheet -->
+  <div class="mask" id="mAdd">
+    <div class="sheet">
+      <h2 id="addTitle">加一节课</h2>
+      <div class="field"><label>课程名</label><input id="fName" placeholder="高等数学"></div>
+      <div class="row2">
+        <div class="field"><label>周几</label>
+          <select id="fDay"><option value="1">周一</option><option value="2">周二</option><option value="3">周三</option><option value="4">周四</option><option value="5">周五</option><option value="6">周六</option><option value="7">周日</option></select>
+        </div>
+        <div class="field"><label>地点</label><input id="fLoc" placeholder="教三-201"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>开始第几节</label><input id="fStart" type="number" min="1" max="14" value="1"></div>
+        <div class="field"><label>结束第几节</label><input id="fEnd" type="number" min="1" max="14" value="2"></div>
+      </div>
+      <div class="field"><label>周次（可选，如 1-16 或 单周）</label><input id="fWeeks" placeholder="1-16"></div>
+      <div class="acts">
+        <button class="btn del" id="fDel" style="display:none">删除</button>
+        <button class="btn" id="fCancel">取消</button>
+        <button class="btn primary" id="fSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- import sheet -->
+  <div class="mask" id="mImp">
+    <div class="sheet">
+      <h2>导入课程表</h2>
+      <div class="seg">
+        <button data-t="paste" class="on">粘贴文字</button>
+        <button data-t="pdf">PDF</button>
+        <button data-t="shot">截图</button>
+      </div>
+      <div id="tPaste">
+        <div class="hint">在教务系统打开课表 → 全选复制那一整块文字 → 粘进下面这个框。</div>
+        <div class="field"><textarea id="impText" placeholder="把复制的课表文字粘到这里…"></textarea></div>
+      </div>
+      <div id="tPdf" style="display:none">
+        <div class="hint">选一个能选中文字的 PDF 课表（教务系统导出的那种），我来抠文字。抠不出来就切「粘贴文字」：在 PDF 里全选复制，粘进来也一样。</div>
+        <input type="file" id="pdfInput" accept="application/pdf,.pdf" style="display:none">
+        <button class="btn" id="pickPdf" style="width:100%">选择 PDF 文件</button>
+        <div class="field" style="margin-top:12px"><textarea id="pdfText" placeholder="（抠出来的文字会显示在这里，可手动修）"></textarea></div>
+      </div>
+      <div id="tShot" style="display:none">
+        <div class="hint">选课表截图（可一次多张，PDF 截图、教务系统截图都行），AI 看图认。<b>建议先在右上角 ⚙︎ 配好你自己的视觉站子</b>——不然走小手机自带通道会带人设、认不准。</div>
+        <input type="file" id="shotInput" accept="image/*" multiple style="display:none">
+        <button class="btn" id="pickShot" style="width:100%">选择截图</button>
+        <div id="shotInfo" class="hint" style="margin-top:8px"></div>
+      </div>
+      <div class="loading" id="impLoad">AI 正在识别课程…</div>
+      <div class="acts">
+        <button class="btn" id="impCancel">取消</button>
+        <button class="btn primary" id="impRun">识别并填入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- settings menu -->
+  <div class="mask" id="mSet">
+    <div class="sheet">
+      <h2>设置</h2>
+      <div class="menu">
+        <button class="item" id="sImport"><span class="ic">⇩</span>导入课程表<span class="sub">粘贴 / 截图</span></button>
+        <button class="item" id="sApi"><span class="ic">⚙︎</span>接口配置<span class="sub" id="sApiState">未配置</span></button>
+        <button class="item" id="sBind"><span class="ic">◔</span>绑定角色<span class="sub" id="sBindState">未绑定</span></button>
+        <button class="item" id="sPull"><span class="ic">↧</span>从对话抓取作业<span class="sub">打开自动 · 可手动</span></button>
+        <button class="item" id="sWeek"><span class="ic">◵</span>学期第一周<span class="sub" id="sWeekState">未设置</span></button>
+        <button class="item" id="sTimes"><span class="ic">◷</span>节次时间<span class="sub" id="sTimesState">默认</span></button>
+        <button class="item" id="sDays"><span class="ic">▦</span>显示天数<span class="sub" id="sDaysState">5 天</span></button>
+        <button class="item" id="sHome"><span class="ic">⌂</span>进入时显示<span class="sub" id="sHomeState">整周·5天</span></button>
+        <button class="item" id="sFont"><span class="ic">Aa</span>导入字体<span class="sub" id="sFontState">默认</span></button>
+        <button class="item" id="sFontReset"><span class="ic">↺</span>恢复默认字体</button>
+        <button class="item" id="sDiag"><span class="ic">🔍</span>接口诊断<span class="sub">排查抓取</span></button>
+        <button class="item danger" id="sClear"><span class="ic">🗑</span>清除所有数据</button>
+      </div>
+      <input type="file" id="fontInput" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" style="display:none">
+      <div class="acts">
+        <button class="btn" id="setClose">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- semester first-week sheet -->
+  <div class="mask" id="mWeek">
+    <div class="sheet">
+      <h2>学期第一周</h2>
+      <div class="hint">选「开学第一周的周一」那天。设了之后，顶部会显示现在是第几周；本周还没轮到的课（比如「3-16周」这种）会自动变灰，表示这周不用上。</div>
+      <div class="field"><label>第一周 · 周一</label><input type="date" id="wStart"></div>
+      <div class="acts">
+        <button class="btn" id="wClear">清除</button>
+        <button class="btn" id="wCancel">取消</button>
+        <button class="btn primary" id="wSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- home / startup view -->
+  <div class="mask" id="mHome">
+    <div class="sheet">
+      <h2>进入时显示</h2>
+      <div class="hint">每次打开 App 默认进入的界面。进去之后照样能点星期切单日、在「显示天数」里换 5/7 天。</div>
+      <div class="menu" id="homeOpts">
+        <button class="item" data-h="week5">整周 · 5 天</button>
+        <button class="item" data-h="week7">整周 · 7 天</button>
+        <button class="item" data-h="day5">当天 · 5 天轴</button>
+        <button class="item" data-h="day7">当天 · 7 天轴</button>
+      </div>
+      <div class="acts"><button class="btn" id="homeClose">关闭</button></div>
+    </div>
+  </div>
+
+  <!-- diagnostics (troubleshoot chat reading) -->
+  <div class="mask" id="mDiag">
+    <div class="sheet">
+      <h2>接口诊断</h2>
+      <div class="hint">这里列出你小手机开放给 App 的接口，以及能不能读到你和绑定角色的对话。<b>把下面这段整个截图发我</b>，我就知道该怎么接。</div>
+      <div class="field"><textarea id="diagText" readonly style="min-height:240px;font-size:11px;line-height:1.5"></textarea></div>
+      <div class="acts">
+        <button class="btn" id="diagClose">关闭</button>
+        <button class="btn primary" id="diagRun">重新检测</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- period times sheet -->
+  <div class="mask" id="mTimes">
+    <div class="sheet">
+      <h2>节次时间</h2>
+      <div class="hint">每一节的上课-下课时间，一行一节（第1行=第1节…）。会显示在左边节次号下面，也用来判断“此刻正在上第几节”。</div>
+      <div class="field"><textarea id="tmText" placeholder="08:00-08:45&#10;08:50-09:35&#10;…"></textarea></div>
+      <div class="hint" style="margin-top:-4px">懒得手打？截图/拍作息表照片识别（可一次多张）；或把作息文字粘到上面框里点「识别文字」。</div>
+      <input type="file" id="tmShot" accept="image/*" multiple style="display:none">
+      <div class="row2" style="margin-bottom:10px">
+        <button class="btn" id="tmPickShot">📷 截图识别</button>
+        <button class="btn" id="tmOcrText">识别框里文字</button>
+      </div>
+      <div class="loading" id="tmLoad">正在识别时间…</div>
+      <div class="acts">
+        <button class="btn" id="tmReset">恢复默认</button>
+        <button class="btn" id="tmCancel">取消</button>
+        <button class="btn primary" id="tmSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- bind character sheet -->
+  <div class="mask" id="mBind">
+    <div class="sheet">
+      <h2>绑定角色</h2>
+      <div class="hint">选一个<b>或多个</b>角色（可多选），把课表写进 TA 们的记忆——聊天时就知道你哪天几点在哪上课。绑定后会<b>自动同步</b>：每次打开 App、每次改动课表都会静默更新给所有已绑角色。想解绑就把勾去掉再保存。</div>
+      <div class="picklist" id="bindList"></div>
+      <div class="acts">
+        <button class="btn" id="bindCancel">取消</button>
+        <button class="btn primary" id="bindSync">保存并同步课程</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- course tasks / homework modal (centered) -->
+  <div class="mask center" id="mTask">
+    <div class="card">
+      <div class="card-h">
+        <div class="card-title" id="tkTitle">课程</div>
+        <button class="card-edit" id="tkEdit" title="编辑任务">✎</button>
+      </div>
+      <div class="card-sub" id="tkSub"></div>
+      <div class="tk-list" id="tkList"></div>
+      <div class="tk-add" id="tkAdd" style="display:none">
+        <input id="tkInput" placeholder="加一条作业 / 待办…">
+        <button id="tkAddBtn">添加</button>
+      </div>
+      <div class="acts" id="tkActs">
+        <button class="btn primary" id="tkClose">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- API config sheet -->
+  <div class="mask" id="mApi">
+    <div class="sheet">
+      <h2>接口配置</h2>
+      <div class="hint">课程表的 AI 识别只走这里填的接口（OpenAI 兼容）：粘贴文字、PDF、截图、作息时间、从聊天里记作业都用它。截图识别需要模型能看图。</div>
+      <div class="field"><label>Base URL</label><input id="cBase" placeholder="https://xxx.com  或  https://xxx.com/v1"></div>
+      <div class="field"><label>API Key</label><input id="cKey" type="password" placeholder="sk-..."></div>
+      <div class="field">
+        <label>模型名 <button type="button" id="cFetch" class="minibtn">拉取模型列表</button></label>
+        <input id="cModel" placeholder="gpt-4o-mini / 你的视觉模型名">
+        <select id="cModelSel" style="display:none;margin-top:6px"><option value="">— 从列表选一个 —</option></select>
+      </div>
+      <div id="cInfo" class="hint" style="margin-top:2px"></div>
+      <div class="acts">
+        <button class="btn" id="cTest">测试连接</button>
+        <button class="btn" id="cCancel">取消</button>
+        <button class="btn primary" id="cSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+<script type="module">
+const api = window.AiPhone || window.AiPhoneApp;
+const $ = s => document.querySelector(s);
+const DAYNAMES = ["","一","二","三","四","五","六","日"];
+let PERIODS = 12;          // 显示到第几节
+let DAYS = 5;              // 显示几天
+let viewDay = null;        // null=整周；1-7=只看某天
+let courses = [];          // {id, name, day, start, end, loc, weeks}
+let editingId = null;
+let taskList = [];         // {id, courseId, text, done}
+let curCourse = null, tkEditing = false;
+
+function toast(t){ try{ api?.ui?.toast(t); }catch(e){} }
+
+/* ---------- storage ---------- */
+async function load(){
+  try{
+    const list = await api.db.list("courses", { limit: 500 });
+    courses = (list?.items || list || []).map(r => ({ id:r.id, ...(r.data||r) }));
+  }catch(e){ courses = []; }
+  render();
+}
+async function saveOne(c){
+  if(c.id){ await api.db.update("courses", c.id, stripId(c)); }
+  else{ const created = await api.db.create("courses", stripId(c)); c.id = created.id; }
+}
+function stripId(c){ const {id,...rest}=c; return rest; }
+async function removeOne(id){ try{ await api.db.delete("courses", id); }catch(e){} }
+
+/* ---------- tasks storage ---------- */
+async function loadTasks(){
+  try{ const l = await api.db.list("tasks", { limit: 1000 });
+    taskList = (l?.items || l || []).map(r => ({ id:r.id, ...(r.data||r) }));
+  }catch(e){ taskList = []; }
+}
+// 按课名聚合：同名课（一周上好几次的那种）共享同一批任务
+function sameNameIds(c){
+  if(!c) return new Set();
+  return new Set(courses.filter(x => x.name===c.name).map(x => x.id));
+}
+function tasksFor(cid){
+  const c = courses.find(x => x.id===cid);
+  if(!c) return taskList.filter(t => t.courseId===cid);
+  const ids = sameNameIds(c);
+  return taskList.filter(t => ids.has(t.courseId));
+}
+function courseHasOpen(c){
+  if(!c || !c.name) return false;
+  const ids = sameNameIds(c);
+  return taskList.some(t => !t.done && ids.has(t.courseId));
+}
+
+/* ---------- render ---------- */
+let weekStart = null;      // "YYYY-MM-DD"，开学第一周的周一
+// 各节课的上课-下课时间。默认一套常见作息，学校不同可在「设置 → 节次时间」里改。
+const DEF_TIMES = ["08:00-08:45","08:50-09:35","09:55-10:40","10:45-11:30","11:35-12:20","14:00-14:45","14:50-15:35","15:55-16:40","16:45-17:30","18:30-19:15","19:20-20:05","20:10-20:55"];
+let periodTimes = [];      // [{s,e,sm,em}]，下标0=第1节；sm/em=起止分钟
+function hm2min(s){ const m=/^\s*(\d{1,2})[:：](\d{2})\s*$/.exec(s||""); return m ? (+m[1])*60+(+m[2]) : null; }
+function min2hm(v){ if(v==null) return ""; const h=Math.floor(v/60), m=((v%60)+60)%60; return h+":"+String(m).padStart(2,"0"); }
+function parsePeriodTimes(str){
+  const out=[];
+  (str||"").split(/\n+/).forEach(ln=>{
+    ln=ln.trim(); if(!ln) return;
+    const m=/(\d{1,2}[:：]\d{2})\s*[-~到至—]\s*(\d{1,2}[:：]\d{2})/.exec(ln);
+    if(m){ const sm=hm2min(m[1]), em=hm2min(m[2]); out.push({s:min2hm(sm),e:min2hm(em),sm,em}); }
+    else out.push(null);   // 占位保持节次对齐
+  });
+  return out;
+}
+function nowSlot(){
+  const d = new Date(); let day = d.getDay(); day = day===0?7:day; // 1..7
+  return { day, hm: d.getHours()*60+d.getMinutes() };
+}
+function curPeriod(){
+  const hm = nowSlot().hm;
+  for(let p=1;p<=periodTimes.length;p++){ const t=periodTimes[p-1]; if(t && t.sm!=null && hm>=t.sm && hm<=t.em) return p; }
+  return null;   // 课间/非上课时间 → 不高亮
+}
+function currentWeek(){
+  if(!weekStart) return null;
+  const ms = Date.now() - new Date(weekStart+"T00:00:00").getTime();
+  if(ms < 0) return null;
+  return Math.floor(ms/(7*864e5)) + 1;
+}
+function activeInWeek(weeksStr, wk){
+  if(wk==null) return true;                 // 没设开学日期 → 不灰
+  const s=(weeksStr||"").trim(); if(!s) return true;   // 没写周次 → 当作全学期
+  if(/单/.test(s) && wk%2===0) return false;
+  if(/双/.test(s) && wk%2===1) return false;
+  const nums=s.match(/\d+/g); if(!nums) return true;
+  if(/(\d+)\s*[-~到]\s*(\d+)/.test(s)){
+    let ok=false; const re=/(\d+)\s*[-~到]\s*(\d+)/g; let m;
+    while((m=re.exec(s))) if(wk>=+m[1]&&wk<=+m[2]) ok=true;
+    if(!ok && nums.map(Number).includes(wk)) ok=true;
+    return ok;
+  }
+  return nums.map(Number).includes(wk);
+}
+function render(){
+  const t = new Date(); let wd = t.getDay(); wd = wd===0?7:wd;
+  const cw = currentWeek(), cp = curPeriod();
+  const allDays = Array.from({length:DAYS},(_,i)=>i+1);
+  const focus = viewDay;                                  // null=全周；否则聚焦某天
+  const wkTag = cw ? `第${cw}周 · ` : "";
+  $("#todayLine").textContent = focus
+    ? `${wkTag}只看周${DAYNAMES[focus]} · 点其它星期切换、再点它回全周`
+    : `${wkTag}周${DAYNAMES[wd]} · ${t.getMonth()+1}月${t.getDate()}日`;
+  const g = $("#grid"), dv = $("#dayView");
+  if(focus){ g.hidden = true; dv.hidden = false; renderDay(focus, {cw,cp,wd,allDays}); return; }
+  dv.hidden = true; g.hidden = false;
+  g.innerHTML = "";
+  g.classList.toggle("dense", DAYS>=6);   // 6/7天时收紧字号一屏铺满
+  // header：星期一排，点某天=切到单日
+  const head = document.createElement("tr");
+  head.innerHTML = `<th class="corner"></th>`;
+  for(const d of allDays){
+    const th = document.createElement("th");
+    th.className = "day" + (d===wd?" on":"");   // 今天=黑底白字
+    th.innerHTML = `<span>周${DAYNAMES[d]}</span>`;
+    th.onclick = ()=>{ viewDay = d; render(); };   // 点某天=只看那天（单日时间轴）
+    head.appendChild(th);
+  }
+  g.appendChild(head);
+  const covered = {};   // 每天已被上面高格子占掉、到第几节为止 → 跳过不再画
+  for(let p=1; p<=PERIODS; p++){
+    const tr = document.createElement("tr");
+    const per = document.createElement("td"); per.className="per";
+    const pt = periodTimes[p-1];
+    per.innerHTML = `<b>${p}</b>` + (pt ? `<i class="pt">${pt.s}</i><i class="pt e">${pt.e}</i>` : "");
+    tr.appendChild(per);
+    for(const d of allDays){
+      if((covered[d]||0) >= p) continue;   // 被上一格 rowspan 盖住了，这一格不画
+      const td = document.createElement("td");
+      const c = courses.find(x => x.day===d && p>=x.start && p<=x.end);
+      const div = document.createElement("div");
+      if(c){
+        const span = Math.min(c.end, PERIODS) - c.start + 1;
+        if(span > 1){ td.rowSpan = span; covered[d] = Math.min(c.end, PERIODS); }
+        const active = activeInWeek(c.weeks, cw);
+        const isNow = active && d===wd && cp!=null && cp>=c.start && cp<=c.end;
+        div.className = "cell" + (isNow?" now":"") + (active?"":" off");
+        div.innerHTML = `<div class="nm">${esc(c.name)}</div>${c.loc?`<div class="lo">${esc(c.loc)}</div>`:""}`;
+        if(courseHasOpen(c)) div.classList.add("has");   // 有未完成任务：黑线描边
+        bindCellTap(div, c);
+      }else{
+        div.className = "cell empty";
+        div.onclick = ()=> openAdd(d, p);
+      }
+      td.appendChild(div); tr.appendChild(td);
+    }
+    g.appendChild(tr);
+  }
+}
+/* ---------- 单日时间轴视图 ---------- */
+const ROWH = 78;   // 每节行高（px），和整周视图 --rowh 对齐
+function renderDay(day, ctx){
+  const { cw, cp, wd, allDays } = ctx;
+  const dv = $("#dayView"); dv.innerHTML = "";
+  // 星期轴：和整周视图同一套表头（.ttbl 相同几何，位置大小一致），不吸顶
+  const bar = document.createElement("table"); bar.className = "ttbl daybar" + (DAYS>=6?" dense":"");
+  const brow = document.createElement("tr"); brow.innerHTML = `<th class="corner"></th>`;
+  for(const d of allDays){
+    const th = document.createElement("th");
+    th.className = "day" + (d===day?" on":"");   // 所看那天=黑底白字（切进来时正好落在“今天”原位）
+    th.innerHTML = `<span>周${DAYNAMES[d]}</span>`;
+    th.onclick = ()=>{ viewDay = (viewDay===d) ? null : d; render(); };  // 点别的=跳；再点自己=回全周
+    brow.appendChild(th);
+  }
+  bar.appendChild(brow); dv.appendChild(bar);
+  // 时间轴
+  const tl = document.createElement("div"); tl.className = "tl"; tl.style.height = (PERIODS*ROWH) + "px";
+  const base = document.createElement("div"); base.className = "railbase"; tl.appendChild(base);
+  for(let p=1; p<=PERIODS; p++){
+    const per = document.createElement("div"); per.className = "tlper";
+    per.style.top = ((p-1)*ROWH) + "px"; per.style.height = ROWH + "px";
+    const pt = periodTimes[p-1];
+    per.innerHTML = `<b>${p}</b>` + (pt ? `<i>${pt.s}</i><i class="e">${pt.e}</i>` : "");
+    tl.appendChild(per);
+  }
+  const dayCourses = courses.filter(c => c.day===day && c.start<=PERIODS).sort((a,b)=>a.start-b.start);
+  const covered = new Array(PERIODS+1).fill(false);
+  dayCourses.forEach(c=>{
+    const end = Math.min(c.end, PERIODS), span = end - c.start + 1;
+    for(let p=c.start; p<=end; p++) covered[p] = true;
+    const top = (c.start-1)*ROWH, h = span*ROWH;
+    const active = activeInWeek(c.weeks, cw);
+    const isNow = active && day===wd && cp!=null && cp>=c.start && cp<=end;
+    const cy = top + h/2;
+    // 竖线：把这门课占的节次连起来（在节次号右边）
+    const seg = document.createElement("div"); seg.className = "tlseg" + (active?"":" off");
+    seg.style.top = (top+10) + "px"; seg.style.height = (h-20) + "px"; tl.appendChild(seg);
+    // 结点 + 横向连接线：把竖线接到课程框
+    const node = document.createElement("div"); node.className = "tlnode" + (active?"":" off");
+    node.style.top = (cy-7) + "px"; tl.appendChild(node);
+    const conn = document.createElement("div"); conn.className = "tlconn";
+    conn.style.top = (cy-1) + "px"; conn.style.width = "22px"; tl.appendChild(conn);
+    // 课程框（缩小、右移）
+    const card = document.createElement("div");
+    card.className = "tlcard" + (isNow?" now":"") + (active?"":" off");
+    card.style.top = (top+6) + "px"; card.style.height = (h-12) + "px";
+    card.innerHTML = `<div class="nm">${esc(c.name)}</div>` + (c.loc?`<div class="lo">${esc(c.loc)}</div>`:"");
+    if(courseHasOpen(c)) card.classList.add("has");   // 有未完成任务：黑线描边
+    bindCellTap(card, c);
+    tl.appendChild(card);
+  });
+  // 空节次 → 可点添加
+  for(let p=1; p<=PERIODS; p++){
+    if(covered[p]) continue;
+    const add = document.createElement("div"); add.className = "tladd";
+    add.style.top = ((p-1)*ROWH+6) + "px"; add.style.height = (ROWH-12) + "px";
+    add.onclick = ()=> openAdd(day, p);
+    tl.appendChild(add);
+  }
+  dv.appendChild(tl);
+}
+function esc(s){ return (s||"").replace(/[&<>]/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[m])); }
+
+/* ---------- course tasks / homework ---------- */
+let _tapTimer = null;
+function bindCellTap(div, c){
+  /* 长按=直接改这节课（导入识别错了用）；手指一动就当是在滑动，不算长按 */
+  let lpT=null, longed=false, sx=0, sy=0;
+  const cancel=()=>{ clearTimeout(lpT); lpT=null; };
+  div.addEventListener("pointerdown", e=>{ longed=false; sx=e.clientX; sy=e.clientY; cancel();
+    lpT=setTimeout(()=>{ lpT=null; longed=true; if(_tapTimer){ clearTimeout(_tapTimer); _tapTimer=null; } try{ navigator.vibrate&&navigator.vibrate(15); }catch(_){} openEdit(c); }, 500); });
+  div.addEventListener("pointermove", e=>{ if(lpT && (Math.abs(e.clientX-sx)>8 || Math.abs(e.clientY-sy)>8)) cancel(); });
+  ["pointerup","pointerleave","pointercancel"].forEach(ev=>div.addEventListener(ev, cancel));
+  div.addEventListener("contextmenu", e=>e.preventDefault());
+  div.onclick = ()=>{
+    if(longed){ longed=false; return; }                                              // 长按后松手不再触发单击
+    if(_tapTimer){ clearTimeout(_tapTimer); _tapTimer=null; openTasks(c, true); }   // 双击=编辑作业
+    else { _tapTimer = setTimeout(()=>{ _tapTimer=null; openTasks(c, false); }, 230); } // 单击=看任务
+  };
+}
+function openTasks(c, edit){
+  curCourse = c; tkEditing = !!edit;
+  $("#tkTitle").textContent = c.name;
+  $("#tkSub").textContent = `周${DAYNAMES[c.day]} 第${c.start}${c.end>c.start?"-"+c.end:""}节${c.loc?" · "+c.loc:""}`;
+  renderTasks();
+  $("#mTask").classList.add("on");
+}
+function renderTasks(){
+  const list = $("#tkList");
+  list.classList.toggle("editing", tkEditing);
+  // 单击=纯展示：不显示任何按钮；双击=编辑：才出输入框/删除/完成
+  $("#tkAdd").style.display = tkEditing ? "" : "none";
+  $("#tkEdit").style.display = "none";
+  $("#tkActs").style.display = tkEditing ? "" : "none";
+  const items = tasksFor(curCourse.id);
+  list.innerHTML = "";
+  if(!items.length){
+    list.innerHTML = `<div class="tk-empty">${tkEditing?"还没有任务，下面输入框加一条。":"当前没有任务，双击课程来添加；长按课程可以改课程信息。"}</div>`;
+    return;
+  }
+  items.forEach(t=>{
+    const el = document.createElement("div"); el.className = "tk"+(t.done?" done":"");
+    el.innerHTML = `<span class="box">${t.done?"✓":""}</span><span class="txt">${esc(t.text)}</span><button class="del" title="删除">✕</button>`;
+    el.querySelector(".del").onclick = (e)=>{ e.stopPropagation(); delTask(t); };
+    el.onclick = ()=>{ if(!tkEditing) toggleTask(t); };   // 编辑模式下不误触打勾，只管加减
+    list.appendChild(el);
+  });
+}
+async function toggleTask(t){
+  t.done = !t.done;
+  try{ await api.db.update("tasks", t.id, { courseId:t.courseId, text:t.text, done:t.done }); }catch(e){}
+  renderTasks(); render(); autoSync();
+}
+async function delTask(t){
+  try{ if(t.id) await api.db.delete("tasks", t.id); }catch(e){}
+  taskList = taskList.filter(x => x !== t);
+  renderTasks(); render(); autoSync();
+}
+async function addTask(text){
+  const rec = { courseId:curCourse.id, text, done:false };
+  try{ const cr = await api.db.create("tasks", rec); rec.id = cr && cr.id; }catch(e){}
+  taskList.push(rec); renderTasks(); render(); autoSync();
+}
+$("#tkEdit").onclick = ()=>{ tkEditing = !tkEditing; renderTasks(); };
+$("#tkAddBtn").onclick = ()=>{ const v=$("#tkInput").value.trim(); if(!v) return; $("#tkInput").value=""; addTask(v); };
+$("#tkInput").addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); $("#tkAddBtn").click(); } });
+$("#tkClose").onclick = ()=> $("#mTask").classList.remove("on");
+$("#mTask").addEventListener("click", e=>{ if(e.target===$("#mTask")) $("#mTask").classList.remove("on"); });  // 点框外关闭
+
+/* ---------- add / edit ---------- */
+function openAdd(day, start){
+  editingId = null; $("#addTitle").textContent="加一节课";
+  $("#fName").value=""; $("#fLoc").value=""; $("#fWeeks").value="";
+  $("#fDay").value = day||1; $("#fStart").value = start||1; $("#fEnd").value = (start||1)+1;
+  $("#fDel").style.display="none"; $("#mAdd").classList.add("on");
+}
+function openEdit(c){
+  editingId=c.id; $("#addTitle").textContent="改这节课";
+  $("#fName").value=c.name||""; $("#fLoc").value=c.loc||""; $("#fWeeks").value=c.weeks||"";
+  $("#fDay").value=c.day||1; $("#fStart").value=c.start||1; $("#fEnd").value=c.end||c.start||1;
+  $("#fDel").style.display=""; $("#mAdd").classList.add("on");
+}
+$("#fCancel").onclick = ()=> $("#mAdd").classList.remove("on");
+$("#fSave").onclick = async ()=>{
+  const c = {
+    id: editingId,
+    name: $("#fName").value.trim(),
+    day: +$("#fDay").value,
+    start: +$("#fStart").value,
+    end: Math.max(+$("#fStart").value, +$("#fEnd").value),
+    loc: $("#fLoc").value.trim(),
+    weeks: $("#fWeeks").value.trim(),
+  };
+  if(!c.name){ toast("填个课名吧"); return; }
+  if(editingId){ const i=courses.findIndex(x=>x.id===editingId); courses[i]=c; }
+  else courses.push(c);
+  await saveOne(c);
+  $("#mAdd").classList.remove("on"); render(); autoSync();
+};
+$("#fDel").onclick = async ()=>{
+  if(editingId){ await removeOne(editingId); courses = courses.filter(x=>x.id!==editingId); }
+  $("#mAdd").classList.remove("on"); render(); autoSync();
+};
+
+/* ---------- import ---------- */
+$("#impCancel").onclick = ()=> $("#mImp").classList.remove("on");
+let impMode="paste";
+let visionImages=[];   // dataURL[]，走看图认
+document.querySelectorAll(".seg button").forEach(b=> b.onclick=()=>{
+  document.querySelectorAll(".seg button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); impMode=b.dataset.t;
+  $("#tPaste").style.display = impMode==="paste"?"":"none";
+  $("#tPdf").style.display   = impMode==="pdf"?"":"none";
+  $("#tShot").style.display  = impMode==="shot"?"":"none";
+});
+
+const pdfInput = $("#pdfInput");
+$("#pickPdf").onclick = ()=> pdfInput.click();
+pdfInput.onchange = async ()=>{
+  const f = pdfInput.files && pdfInput.files[0]; if(!f){ return; }
+  toast("已选："+f.name); $("#pickPdf").textContent="解析中…"; visionImages=[];
+  try{
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    const txt = await pdfToText(bytes);
+    if(txt.trim()){ $("#pdfText").value=txt; toast("抠到文字了，点识别"); }
+    else{
+      toast("文字版读不到，转成图用 AI 看图认…");
+      visionImages = await pdfToImages(bytes);
+      $("#pdfText").value = "（扫描版：已转成 "+visionImages.length+" 张图，点下面识别）";
+      toast("已转图，点识别（需模型带视觉）");
+    }
+    $("#pickPdf").textContent="重新选 PDF";
+  }catch(e){ $("#pickPdf").textContent="选择 PDF 文件"; toast("处理失败："+(e&&e.message||e)); }
+};
+
+const shotInput = $("#shotInput");
+$("#pickShot").onclick = ()=> shotInput.click();
+shotInput.onchange = async ()=>{
+  const fs = Array.from(shotInput.files||[]).slice(0,8); if(!fs.length){ return; }
+  try{
+    visionImages = [];
+    for(const f of fs){ visionImages.push(await compressImage(f)); }
+    $("#shotInfo").textContent = "已选 "+visionImages.length+" 张，点下面识别";
+    toast("已选 "+visionImages.length+" 张图");
+  }catch(e){ toast("读图失败："+(e&&e.message||e)); }
+};
+
+async function loadPdfjs(){
+  const p = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs");
+  try{ p.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs"; }catch(e){}
+  return p;
+}
+async function pdfToText(bytes){
+  const pdfjs = await loadPdfjs();
+  const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+  let out="";
+  for(let i=1;i<=pdf.numPages;i++){ const pg=await pdf.getPage(i); const tc=await pg.getTextContent(); out+=tc.items.map(it=>it.str).join(" ")+"\n"; }
+  return out;
+}
+async function pdfToImages(bytes, maxPages=4){
+  const pdfjs = await loadPdfjs();
+  const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+  const imgs=[]; const n=Math.min(pdf.numPages,maxPages);
+  for(let i=1;i<=n;i++){
+    const pg=await pdf.getPage(i); const vp=pg.getViewport({scale:1.6});
+    const cv=document.createElement("canvas"); cv.width=vp.width; cv.height=vp.height;
+    await pg.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
+    imgs.push(shrink(cv));
+  }
+  return imgs;
+}
+async function compressImage(file){
+  const url = await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); });
+  const img = await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=url; });
+  const scale=Math.min(1, 1400/img.width, 2200/img.height);   // 长截图也压住高度
+  const cv=document.createElement("canvas"); cv.width=Math.round(img.width*scale); cv.height=Math.round(img.height*scale);
+  cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
+  return shrink(cv);
+}
+function shrink(cv){
+  let q=0.72, url=cv.toDataURL("image/jpeg",q);
+  /* 小手机单张图上限 2MB，超过会被悄悄丢掉（模型就什么都看不到→识别出0节），所以压到 1.8MB 以内 */
+  while(url.length>1800000 && q>0.3){ q-=0.1; url=cv.toDataURL("image/jpeg",q); }
+  if(url.length>1800000){ const c2=document.createElement("canvas"); c2.width=Math.round(cv.width*0.75); c2.height=Math.round(cv.height*0.75); c2.getContext("2d").drawImage(cv,0,0,c2.width,c2.height); return shrink(c2); }
+  return url;
+}
+
+$("#impRun").onclick = async ()=>{
+  $("#impLoad").classList.add("on");
+  try{
+    let parsed;
+    if(impMode==="paste"){
+      const raw=$("#impText").value.trim(); if(!raw){ toast("先粘贴文字"); $("#impLoad").classList.remove("on"); return; }
+      parsed = await aiParseText(raw);
+    }else if(impMode==="pdf"){
+      if(visionImages.length){ parsed = await aiParseImages(visionImages); }
+      else{ const raw=$("#pdfText").value.trim(); if(!raw){ toast("先选 PDF"); $("#impLoad").classList.remove("on"); return; } parsed = await aiParseText(raw); }
+    }else{
+      if(!visionImages.length){ toast("先选截图"); $("#impLoad").classList.remove("on"); return; }
+      parsed = await aiParseImages(visionImages);
+    }
+    // 去重合并：同一门课（课名+周几+开始节）已存在就原地更新（补正 end/周次/地点），否则新增。
+    // 这样重复导入不会翻倍，而是修正现有数据。
+    let added=0, upd=0;
+    for(const c of parsed){
+      const ex = courses.find(x => x.name===c.name && x.day===c.day && x.start===c.start);
+      if(ex){ Object.assign(ex, c, { id:ex.id }); await saveOne(ex); upd++; }
+      else { courses.push(c); await saveOne(c); added++; }
+    }
+    $("#impLoad").classList.remove("on"); $("#mImp").classList.remove("on"); render(); autoSync();
+    toast(`识别 ${parsed.length} 节：新增 ${added}、更新 ${upd}`);
+  }catch(e){ $("#impLoad").classList.remove("on"); toast("识别失败："+(e&&e.message||e)); }
+};
+
+const FIELDS = `每个元素字段：name(课程名), day(1-7对应周一到周日,数字), start(开始第几节,数字), end(结束第几节,数字), loc(地点,没有就空串), weeks(周次,如"1-16"或"3-16"或"单周",没有就空串)。注意：一门课常常连上2节甚至更多，start 和 end 要覆盖它占的整段（例如1-2节的课 start=1、end=2），不要只填一节；周次一定要抠准，"3-16周"就填"3-16"。`;
+const SYS = "你是课表OCR解析器。只输出一个JSON数组：第一个字符必须是 [ ，最后一个字符必须是 ] 。禁止任何解释、寒暄、开场白、markdown代码块。看不清的课就跳过，绝不编造。";
+
+/* ---------- 自填接口（OpenAI 兼容）：课程表所有 AI 识别只走这里，不用小手机的模型 ---------- */
+async function needCfg(){ const c=await getCfg(); if(!hasCfg(c)) throw new Error("先在 设置 › 接口配置 里填好你的接口"); return c; }
+let _cfg, _cfgId;
+/* 设置只该有一条记录。以前几处同时保存时可能各建一条，读的时候只认第一条，别的设置就像丢了——
+   现在读取时把所有记录合并成一条（有值的优先），多余的删掉；保存也排队，不会再并发新建 */
+let _cfgLoading=null, _cfgSaveQ=Promise.resolve();
+async function getCfg(){
+  if(_cfg!==undefined) return _cfg;
+  if(_cfgLoading) return _cfgLoading;
+  _cfgLoading=(async()=>{
+    try{
+      const l=await api.db.list("config",{limit:50}); const items=(l?.items||l||[]);
+      const merged={};
+      for(const r of items){ const d=(r&&(r.data||r))||{}; for(const k of Object.keys(d)){ const cur=merged[k]; if(cur===undefined||cur===null||cur==="") merged[k]=d[k]; } }
+      _cfgId=items[0]&&items[0].id; _cfg=merged;
+      if(items.length>1 && _cfgId){ try{ await api.db.update("config", _cfgId, merged); for(const r of items.slice(1)){ if(r&&r.id) await api.db.delete("config", r.id); } }catch(e){} }
+    }catch(e){ _cfg={}; }
+    return _cfg; })();
+  return _cfgLoading;
+}
+async function saveCfg(patch){
+  const run=async()=>{
+    const cur = await getCfg();
+    const data = { ...cur, ...patch };
+    if(_cfgId) await api.db.update("config", _cfgId, data);
+    else { const created = await api.db.create("config", data); _cfgId = created && created.id; }
+    _cfg = data; return data; };
+  const p=_cfgSaveQ.then(run,run); _cfgSaveQ=p.catch(()=>{}); return p;
+}
+function hasCfg(c){ return c&&c.base&&c.key&&c.model; }
+function apiEndpoint(base){
+  let b=(base||"").trim().replace(/\/+$/,"");
+  if(/\/chat\/completions$/.test(b)) return b;
+  if(/\/v\d+$/.test(b)) return b+"/chat/completions";
+  return b+"/v1/chat/completions";
+}
+function modelsEndpoint(base){
+  let b=(base||"").trim().replace(/\/+$/,"");
+  if(/\/models$/.test(b)) return b;
+  if(/\/v\d+$/.test(b)) return b+"/models";
+  return b+"/v1/models";
+}
+async function fetchModels(cfg){
+  let r;
+  try{
+    r = await fetch(modelsEndpoint(cfg.base), { headers:{ "Authorization":"Bearer "+cfg.key } });
+  }catch(e){ throw new Error("连不上/跨域被挡（这个站子没开 CORS）"); }
+  if(!r.ok){ const t=await r.text().catch(()=> ""); throw new Error("接口 "+r.status+"："+(t.slice(0,80)||"")); }
+  const j = await r.json();
+  const raw = (j&&(j.data||j.models||j.result)) || (Array.isArray(j)?j:[]);
+  const ids = raw.map(m => (typeof m==="string"?m:(m.id||m.name||m.model))).filter(Boolean);
+  return Array.from(new Set(ids));
+}
+async function directLLM(cfg, messages){
+  let r;
+  try{
+    r = await fetch(apiEndpoint(cfg.base), {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+cfg.key },
+      body: JSON.stringify({ model:cfg.model, messages, temperature:0.1, stream:false })
+    });
+  }catch(e){ throw new Error("连不上/跨域被挡（这个站子没开 CORS）"); }
+  if(!r.ok){ const t=await r.text().catch(()=> ""); throw new Error("接口 "+r.status+"："+(t.slice(0,120)||"")); }
+  const j = await r.json();
+  const text = (j&&j.choices&&j.choices[0]&&((j.choices[0].message&&j.choices[0].message.content)||j.choices[0].text)) || "";
+  return { text };
+}
+
+async function aiParseText(raw){
+  // 直通车：粘进来的本身就是排好的 JSON 数组，直接用，完全跳过 AI（最稳，一节不漏）
+  const t = raw.trim();
+  if(t[0]==="["){
+    try{ const out=toCourses({text:t}); if(out.length) return out; }catch(_){}
+  }
+  const cfg = await getCfg();
+  const msgs = [
+    { role:"system", content:SYS },
+    { role:"user", content:`把下面课表文本解析成 JSON 数组。${FIELDS}\n课表文本：\n"""${raw}"""` }
+  ];
+  const res = await directLLM(await needCfg(), msgs);
+  return toCourses(res, true);
+}
+/* 识别不出来时，用弹框把原因和模型原话摆出来（toast 太短看不全） */
+function showParseFail(text){ const raw=String(text||"").trim();
+  const noImg=/NO_IMAGE|\[图片\]|看不到.{0,6}图|没有.{0,4}(看到|收到).{0,4}图|无法(查看|看到|识别).{0,4}图|未(提供|上传).{0,4}图/.test(raw);
+  const why=noImg
+    ? `模型<b>没看到图片</b>——你在 设置 › 接口配置 里填的这个模型可能不支持看图，换一个能看图的模型。`
+    : `模型看到了，但没按格式返回课程。下面是它的原话，截给小克看：`;
+  let m=document.getElementById("mParseFail"); if(!m){ m=document.createElement("div"); m.id="mParseFail"; m.className="mask"; document.body.appendChild(m); m.addEventListener("click",e=>{ if(e.target===m) m.classList.remove("on"); }); }
+  m.innerHTML=`<div class="sheet"><h2>识别出 0 节课</h2><div class="hint" style="line-height:1.8">${why}</div><div style="max-height:40vh;overflow:auto;font-size:12.5px;white-space:pre-wrap;word-break:break-all;background:rgba(0,0,0,.05);border-radius:10px;padding:10px">${esc(raw.slice(0,1500))||"（空）"}</div><div class="acts"><button class="btn primary" onclick="this.closest('.mask').classList.remove('on')">知道了</button></div></div>`;
+  m.classList.add("on"); }
+async function aiParseImages(images){
+  const cfg = await needCfg();
+  {
+    // 直连你自己的视觉站子：OpenAI 多模态格式，我控提示词 → 干净 JSON
+    const content = [{ type:"text", text:`解析这张课表图，把每一节课变成数组的一个元素。${FIELDS}` }];
+    images.forEach(u=> content.push({ type:"image_url", image_url:{ url:u } }));
+    const res = await directLLM(cfg, [
+      { role:"system", content:SYS },
+      { role:"user", content }
+    ]);
+    return toCourses(res, true);
+  }
+}
+/* ---------- 识别“节次时间/作息表” ---------- */
+const T_FIELDS = `输出一个JSON数组，按节次从早到晚排序，每个元素形如 {"p":节次序号数字从1开始,"s":"上课时间HH:MM","e":"下课时间HH:MM"}。有几节就输出几节，时间用24小时制。`;
+const T_SYS = "你是作息时间表解析器。只输出一个JSON数组：第一个字符必须是 [ ，最后一个字符必须是 ] 。禁止任何解释、markdown代码块。看不清就跳过，绝不编造。";
+function normHM(s){ const m=/(\d{1,2})\s*[:：.．时点]\s*(\d{2})/.exec(String(s||"")); return m ? (+m[1])+":"+m[2] : ""; }
+function timesToLines(res, debug){
+  let text=(res&&(res.text||res.content||(res.message&&res.message.content)))||"";
+  text=text.replace(/```json/gi,"").replace(/```/g,"").trim();
+  const m=text.match(/\[[\s\S]*\]/); let arr;
+  try{ arr=JSON.parse(m?m[0]:text); }
+  catch(e){ if(debug) throw new Error("模型没按JSON返回 → "+(text.slice(0,140)||"空")); throw e; }
+  if(!Array.isArray(arr)) arr=arr.times||arr.list||arr.data||[];
+  const rows=arr.map(x=>({ p:+((x&&(x.p||x.period))||0), s:normHM(x&&(x.s||x.start)), e:normHM(x&&(x.e||x.end)) }))
+                .filter(r=>r.s&&r.e);
+  rows.sort((a,b)=>(a.p||99)-(b.p||99));
+  return rows.map(r=>`${r.s}-${r.e}`);
+}
+async function aiParseTimesImages(images){
+  const cfg=await needCfg();
+  const userText=`识别这张作息/时间表图里每一节课的上课和下课时间。${T_FIELDS}`;
+  if(hasCfg(cfg)){
+    const content=[{type:"text",text:userText}];
+    images.forEach(u=>content.push({type:"image_url",image_url:{url:u}}));
+    const res=await directLLM(cfg,[{role:"system",content:T_SYS},{role:"user",content}]);
+    return timesToLines(res,true);
+  }
+}
+async function aiParseTimesText(raw){
+  const cfg=await getCfg();
+  const msgs=[{role:"system",content:T_SYS},{role:"user",content:`把下面作息时间文字解析成JSON数组。${T_FIELDS}\n文字：\n"""${raw}"""`}];
+  const res=await directLLM(await needCfg(),msgs);
+  return timesToLines(res,true);
+}
+/* ---------- 说一句话记作业（自然语言 → 任务） ---------- */
+const TK_SYS = "你从【用户本人表达出自己要做的、跟学习/某门课有关的事】里提取，把它记成一条待办。判断标准只有一个：用户是不是说了自己要做某件学习上的事——不需要出现“作业”或“任务”这两个字。凡是用户说自己要 补习/复习/预习/准备/背/写/做/看/整理/交/考 某门课或某内容（例如“我要补习宏观经济学”“得复习第三章”“下周要考高数”“财务管理报告周三交”），都算，要提取。只输出一个JSON数组：第一个字符是 [ ，最后一个是 ] ，禁止解释和markdown；没有就输出 []。绝不编造、绝不推测。以下一律忽略：寒暄闲聊、心情感受、疑问句、对方（AI角色）说的任何话、对方的等待/计划（如“等你上完课”）、以及只提到课名却没说自己要做什么的句子。";
+async function aiParseTasksText(raw, fromChat){
+  const cfg = await getCfg();
+  const names = courses.map(c=>c.name);
+  const hint = names.length ? `\n用户现有课程名（course 请尽量从这里选最贴切的一个，比如“高数”对应“高等数学C(III)”）：${names.join("、")}` : "";
+  const fields = `每个元素形如 {"course":"所属课程名(尽量匹配已有课程,拿不准就空串)","text":"要做的事，简洁一句（保留原话意思，如“补习宏观经济学”“复习第三章”“交小组报告”）"}。判断看用户有没有说自己要做某件学习上的事，不用管有没有“作业/任务”字样。${hint}`;
+  const guard = fromChat ? `\n下面是用户在聊天里说的话（可能夹着寒暄闲聊）。只挑出用户表达“自己要做某件学习上的事”的句子；对方说的话、纯闲聊、没有具体要做什么的，忽略。` : "";
+  const msgs = [
+    { role:"system", content:TK_SYS },
+    { role:"user", content:`从下面这段话里提取用户明确交代的作业/任务，整理成JSON数组。${fields}${guard}\n话：\n"""${raw}"""` }
+  ];
+  const res = await directLLM(await needCfg(), msgs);
+  let text = (res && (res.text || res.content || (res.message&&res.message.content))) || "";
+  text = text.replace(/```json/gi,"").replace(/```/g,"").trim();
+  const m = text.match(/\[[\s\S]*\]/); let arr;
+  try{ arr = JSON.parse(m ? m[0] : text); }
+  catch(e){ throw new Error("模型没按JSON返回 → " + (text.slice(0,120)||"空")); }
+  if(!Array.isArray(arr)) arr = arr.tasks || arr.list || arr.data || [];
+  return arr.filter(x=>x&&x.text).map(x=>({ course:x.course?String(x.course):"", text:String(x.text).trim() }));
+}
+function toCourses(res, debug){
+  let text = (res && (res.text || res.content || (res.message&&res.message.content))) || "";
+  text = text.replace(/```json/gi,"").replace(/```/g,"").trim();
+  const m = text.match(/\[[\s\S]*\]/);
+  let arr;
+  try{ arr = JSON.parse(m ? m[0] : text); }
+  catch(e){
+    // 把模型原话抛出去，让"识别失败"那条提示直接显示它到底说了啥
+    if(debug){ showParseFail(text); throw new Error("识别失败"); }
+    throw e;
+  }
+  if(!Array.isArray(arr)) arr = arr.courses || arr.list || arr.data || arr.课程 || [];
+  const DM={一:1,二:2,三:3,四:4,五:5,六:6,日:7,天:7,七:7};
+  const dayN=v=>{ if(typeof v==="number") return v; const t=String(v||""); const n=parseInt(t,10); if(n>=1&&n<=7) return n; const m=t.match(/[一二三四五六日天七]/); return m?DM[m[0]]:1; };
+  const secN=v=>{ const m=String(v==null?"":v).match(/\d+/g); return m?m.map(Number):[]; };
+  const out = arr.map(x=>{ if(!x||typeof x!=="object") return null;
+    const name=x.name||x.course||x.courseName||x.title||x.课程||x.课程名||x.名称; if(!name) return null;
+    let st=secN(x.start??x.from??x.开始??x.节次), en=secN(x.end??x.to??x.结束);
+    const s0=st[0]||1, e0=en[0]||st[1]||s0;
+    return { name:String(name).trim(), day:dayN(x.day??x.weekday??x.星期), start:s0, end:Math.max(s0,e0),
+      loc:String(x.loc||x.location||x.room||x.地点||x.教室||""), weeks:String(x.weeks||x.week||x.周次||"") }; }).filter(Boolean);
+  if(debug && out.length===0) showParseFail(text);
+  return out;
+}
+
+/* ---------- settings menu（点“课程表”打开） ---------- */
+async function refreshSettingsState(){
+  const c = await getCfg();
+  $("#sApiState").textContent  = hasCfg(c) ? "已配置" : "未配置";
+  const bc = boundChars(c);
+  $("#sBindState").textContent = !bc.length ? "未绑定"
+    : (bc.length===1 ? (bc[0].name||"已绑定") : `${bc.length} 人`);
+  const cw = currentWeek();
+  $("#sWeekState").textContent = c.weekStart ? (cw?`第${cw}周`:"已设置") : "未设置";
+  $("#sDaysState").textContent = DAYS + " 天";
+  $("#sHomeState").textContent = homeLabel(c.home || "week5");
+  $("#sTimesState").textContent = c.periodTimes ? "已自定义" : "默认";
+  $("#sFontState").textContent = c.fontName ? (c.fontName.length>10?c.fontName.slice(0,9)+"…":c.fontName) : "默认";
+}
+/* ---------- 自定义字体（只换字体，加粗仍生效） ---------- */
+function applyFont(dataUrl){
+  let st = document.getElementById("customFont");
+  if(!st){ st=document.createElement("style"); st.id="customFont"; document.head.appendChild(st); }
+  st.textContent = dataUrl
+    ? `@font-face{font-family:'ttUserFont';src:url("${dataUrl}");font-weight:100 900;font-style:normal;font-display:swap}`
+      + `body{font-family:'ttUserFont',-apple-system,"PingFang SC","Noto Sans SC",system-ui,sans-serif}`
+    : "";
+}
+const fontInput = $("#fontInput");
+$("#sFont").onclick = ()=> fontInput.click();
+fontInput.onchange = async ()=>{
+  const f = fontInput.files && fontInput.files[0]; fontInput.value=""; if(!f) return;
+  if(f.size > 20*1024*1024){ toast("字体太大(>20MB)。中文字体可用「思源」等已裁剪的子集版"); return; }
+  toast(f.size>6*1024*1024 ? "字体较大，读取中，稍等…" : "读取字体中…");
+  try{
+    const url = await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f); });
+    await saveCfg({ fontData:url, fontName:f.name });
+    applyFont(url); toast("已应用字体："+f.name);
+    $("#mSet").classList.remove("on");
+  }catch(e){ toast("字体读取失败："+(e&&e.message||e)); }
+};
+$("#sFontReset").onclick = async ()=>{
+  await saveCfg({ fontData:"", fontName:"" }); applyFont(null);
+  await refreshSettingsState(); toast("已恢复默认字体");
+};
+$("#sWeek").onclick   = async ()=>{ const c=await getCfg(); $("#wStart").value=c.weekStart||""; $("#mSet").classList.remove("on"); $("#mWeek").classList.add("on"); };
+$("#wCancel").onclick = ()=> $("#mWeek").classList.remove("on");
+$("#wClear").onclick  = async ()=>{ weekStart=null; await saveCfg({ weekStart:"" }); $("#mWeek").classList.remove("on"); render(); toast("已清除"); };
+$("#wSave").onclick   = async ()=>{ weekStart=$("#wStart").value||null; await saveCfg({ weekStart:weekStart||"" }); $("#mWeek").classList.remove("on"); render(); toast(weekStart?"已设置学期第一周":"已清除"); };
+$("#sTimes").onclick  = async ()=>{ const c=await getCfg(); $("#tmText").value = c.periodTimes || DEF_TIMES.join("\n"); $("#mSet").classList.remove("on"); $("#mTimes").classList.add("on"); };
+$("#tmCancel").onclick= ()=> $("#mTimes").classList.remove("on");
+$("#tmReset").onclick = ()=>{ $("#tmText").value = DEF_TIMES.join("\n"); };
+$("#tmPickShot").onclick = ()=> $("#tmShot").click();
+$("#tmShot").onchange = async ()=>{
+  const fs=Array.from($("#tmShot").files||[]).slice(0,8); $("#tmShot").value=""; if(!fs.length) return;
+  $("#tmLoad").classList.add("on");
+  try{
+    const imgs=[]; for(const f of fs) imgs.push(await compressImage(f));
+    const lines=await aiParseTimesImages(imgs);
+    if(lines.length){ $("#tmText").value=lines.join("\n"); toast("识别到 "+lines.length+" 节时间，核对后保存"); }
+    else toast("没识别到时间，换张清楚点的图");
+  }catch(e){ toast("识别失败："+(e&&e.message||e)); }
+  $("#tmLoad").classList.remove("on");
+};
+$("#tmOcrText").onclick = async ()=>{
+  const raw=$("#tmText").value.trim(); if(!raw){ toast("先把作息文字粘到上面框里"); return; }
+  $("#tmLoad").classList.add("on");
+  try{
+    const lines=await aiParseTimesText(raw);
+    if(lines.length){ $("#tmText").value=lines.join("\n"); toast("整理出 "+lines.length+" 节时间，核对后保存"); }
+    else toast("没解析到时间");
+  }catch(e){ toast("识别失败："+(e&&e.message||e)); }
+  $("#tmLoad").classList.remove("on");
+};
+$("#tmSave").onclick  = async ()=>{
+  const v = $("#tmText").value.trim();
+  const isDefault = (v===DEF_TIMES.join("\n"));
+  periodTimes = parsePeriodTimes(v || DEF_TIMES.join("\n"));
+  await saveCfg({ periodTimes: isDefault ? "" : v });   // 和默认一样就存空，状态显示“默认”
+  $("#mTimes").classList.remove("on"); render(); toast("已保存节次时间");
+};
+$("#btnSet").onclick  = async ()=>{ await refreshSettingsState(); $("#mSet").classList.add("on"); };
+$("#setClose").onclick= ()=> $("#mSet").classList.remove("on");
+$("#sImport").onclick = ()=>{ $("#mSet").classList.remove("on"); $("#mImp").classList.add("on"); };
+$("#sApi").onclick    = async ()=>{
+  const c = await getCfg();
+  $("#cBase").value=c.base||""; $("#cKey").value=c.key||""; $("#cModel").value=c.model||"";
+  $("#cModelSel").style.display="none"; $("#cInfo").textContent="";
+  $("#mSet").classList.remove("on"); $("#mApi").classList.add("on");
+};
+$("#sBind").onclick   = async ()=>{ $("#mSet").classList.remove("on"); await openBind(); };
+$("#sPull").onclick   = async ()=>{ $("#mSet").classList.remove("on"); toast("正在从角色对话里找作业…"); await pullTasks(false); };
+/* ---------- 接口诊断 ---------- */
+function methodsOf(obj){
+  if(obj==null) return "(不存在)";
+  if(typeof obj!=="object" && typeof obj!=="function") return "("+typeof obj+")";
+  const names=new Set(); let o=obj;
+  for(let d=0; d<3 && o && o!==Object.prototype; d++){
+    try{ Object.getOwnPropertyNames(o).forEach(n=>{ if(n!=="constructor") names.add(n); }); }catch(e){}
+    o=Object.getPrototypeOf(o);
+  }
+  return [...names].join(", ") || "(空)";
+}
+async function diagnose(){
+  const L=[];
+  L.push("api 存在: "+(api?"是":"否"));
+  L.push("api 顶层: "+methodsOf(api));
+  L.push("· memory: "+methodsOf(api&&api.memory));
+  L.push("· chat: "+methodsOf(api&&api.chat));
+  L.push("· messages: "+methodsOf(api&&api.messages));
+  L.push("· conversation(s): "+methodsOf(api&&(api.conversation||api.conversations)));
+  L.push("· ai: "+methodsOf(api&&api.ai));
+  L.push("· characters: "+methodsOf(api&&api.characters));
+  L.push("· db: "+methodsOf(api&&api.db));
+  const c=await getCfg(); const chars=boundChars(c);
+  L.push("已绑角色: "+(chars.map(x=>(x.name||"?")+"#"+String(x.id).slice(0,6)).join(" | ")||"无（先去绑定）"));
+  const cid = chars[0] && chars[0].id;
+  // 原始返回探针：直接看 readHistory / 记忆 各种调用到底返回什么
+  if(cid && api && api.chat){
+    const probes = [
+      ["chat.getCurrentSession()", ()=> api.chat.getCurrentSession && api.chat.getCurrentSession()],
+      ["chat.readHistory({characterId,limit})", ()=> api.chat.readHistory && api.chat.readHistory({characterId:cid,limit:4})],
+      ["chat.readHistory(charId)", ()=> api.chat.readHistory && api.chat.readHistory(cid)],
+      ["chat.readHistory()", ()=> api.chat.readHistory && api.chat.readHistory()],
+      ["memory.readShortTerm({characterId})", ()=> api.memory.readShortTerm && api.memory.readShortTerm({characterId:cid,limit:4})],
+      ["memory.readShortTerm(charId)", ()=> api.memory.readShortTerm && api.memory.readShortTerm(cid)],
+    ];
+    for(const [label, call] of probes){
+      try{ const r = await call(); L.push("· "+label+" → "+(r===undefined?"undefined":JSON.stringify(r)).slice(0,200)); }
+      catch(e){ L.push("· "+label+" ✗ "+(e&&e.message||e)); }
+    }
+  }
+  for(const ch of chars){
+    let t=null, err="";
+    try{ t=await readRecentTexts(ch.id); }catch(e){ err=String(e&&e.message||e); }
+    if(t===null) L.push(`读[${ch.name}]对话: 所有读法都没数据/不支持 ${err}`);
+    else{
+      L.push(`读[${ch.name}]对话: 拿到 ${t.length} 条`);
+      t.slice(-6).forEach((x,i)=>L.push(`  #${i} role=${x.role||"?"} | ${(x.txt||"").slice(0,44)}`));
+    }
+  }
+  return L.join("\n");
+}
+$("#sDiag").onclick = async ()=>{ $("#mSet").classList.remove("on"); $("#diagText").value="检测中…"; $("#mDiag").classList.add("on"); try{ $("#diagText").value=await diagnose(); }catch(e){ $("#diagText").value="诊断出错："+(e&&e.message||e); } };
+$("#diagRun").onclick = async ()=>{ $("#diagText").value="检测中…"; try{ $("#diagText").value=await diagnose(); }catch(e){ $("#diagText").value="诊断出错："+(e&&e.message||e); } };
+$("#diagClose").onclick = ()=> $("#mDiag").classList.remove("on");
+
+$("#sDays").onclick   = async ()=>{ DAYS = DAYS===5?7:5; render(); await refreshSettingsState(); };
+/* ---------- 进入时显示（首页视图） ---------- */
+function homeLabel(h){ return ({week5:"整周·5天",week7:"整周·7天",day5:"当天·5天",day7:"当天·7天"})[h] || "整周·5天"; }
+function applyHome(h){                       // 设 DAYS 与 viewDay
+  DAYS = /7/.test(h) ? 7 : 5;
+  if(/^day/.test(h)){ let d=new Date().getDay(); d = d===0?7:d; viewDay = d; }
+  else viewDay = null;
+}
+function markHome(h){ document.querySelectorAll("#homeOpts .item").forEach(b=> b.classList.toggle("on", b.dataset.h===h)); }
+$("#sHome").onclick   = async ()=>{ const c=await getCfg(); markHome(c.home||"week5"); $("#mSet").classList.remove("on"); $("#mHome").classList.add("on"); };
+$("#homeClose").onclick = ()=> $("#mHome").classList.remove("on");
+document.querySelectorAll("#homeOpts .item").forEach(b=> b.onclick = async ()=>{
+  const h = b.dataset.h;
+  await saveCfg({ home:h }); markHome(h);
+  applyHome(h); render();                    // 顺手立即切过去看效果
+  toast("已设默认：" + homeLabel(h));
+  $("#mHome").classList.remove("on");
+});
+
+// 沙盒禁用 confirm()，用“再点一次”确认清除
+let _clearArmed=false, _clearTimer;
+$("#sClear").onclick  = async ()=>{
+  if(!_clearArmed){
+    _clearArmed=true; $("#sClear").innerHTML='<span class="ic">🗑</span>再点一次确认清除';
+    _clearTimer=setTimeout(()=>{ _clearArmed=false; $("#sClear").innerHTML='<span class="ic">🗑</span>清除所有数据'; },3000);
+    return;
+  }
+  clearTimeout(_clearTimer); _clearArmed=false; $("#sClear").innerHTML='<span class="ic">🗑</span>清除所有数据';
+  try{ for(const c of [...courses]){ if(c.id) await removeOne(c.id); } courses=[]; render(); autoSync(); toast("已清空"); }
+  catch(e){ toast("清除失败："+(e&&e.message||e)); }
+  $("#mSet").classList.remove("on");
+};
+
+/* ---------- bind character(s) + calendar sync ---------- */
+// 已绑角色统一取这里：优先新的 chars 数组，兼容老的单个 charId/charName
+function boundChars(c){
+  if(c && Array.isArray(c.chars) && c.chars.length) return c.chars.filter(x=>x&&x.id);
+  if(c && c.charId) return [{ id:c.charId, name:c.charName||"" }];
+  return [];
+}
+let bindSel = new Map();   // id -> name，本次弹层里勾选的角色
+async function openBind(){
+  const c = await getCfg();
+  let chars=[];
+  try{ const cs=await api.characters.list(); chars=(cs&&(cs.items||cs))||[]; }catch(e){}
+  bindSel = new Map(boundChars(c).map(x=>[x.id, x.name]));   // 预选上已绑的
+  const list=$("#bindList"); list.innerHTML="";
+  if(!chars.length){ list.innerHTML='<div class="hint">没读到角色。先在小手机里建一个角色，再回来绑定。</div>'; }
+  chars.forEach(ch=>{
+    const id=ch.id, name=ch.name||ch.title||"角色", av=ch.avatar||ch.avatarUrl||ch.icon||"";
+    const el=document.createElement("button");
+    const sel = bindSel.has(id);
+    el.className="p"+(sel?" sel":"");
+    el.innerHTML=(av?`<img class="av" src="${esc(av)}">`:`<span class="av"></span>`)+`<span>${esc(name)}</span>`+(sel?'<span class="tick">✓</span>':'');
+    el.onclick=()=>{
+      if(bindSel.has(id)){
+        bindSel.delete(id); el.classList.remove("sel");
+        const t=el.querySelector(".tick"); if(t) t.remove();
+      }else{
+        bindSel.set(id,name); el.classList.add("sel");
+        if(!el.querySelector(".tick")){ const t=document.createElement("span"); t.className="tick"; t.textContent="✓"; el.appendChild(t); }
+      }
+    };
+    list.appendChild(el);
+  });
+  $("#mBind").classList.add("on");
+}
+$("#bindCancel").onclick = ()=> $("#mBind").classList.remove("on");
+$("#bindSync").onclick   = async ()=>{
+  const chars = Array.from(bindSel, ([id,name])=>({ id, name }));
+  await saveCfg({ chars, charId:"", charName:"" });   // 清掉老的单绑字段，统一走 chars
+  if(!chars.length){ $("#mBind").classList.remove("on"); toast("已取消绑定"); return; }
+  if(!courses.length){ $("#mBind").classList.remove("on"); toast(`已绑定 ${chars.length} 位，导入课程后会自动同步`); return; }
+  toast("同步中…");
+  let ok=0;
+  for(const ch of chars){ if(await syncToCharacter(ch.id, ch.name, { withCore:true, silent:true })) ok++; }
+  $("#mBind").classList.remove("on");
+  toast(ok ? `已让 ${ok} 位角色记住你的课表，直接聊就行` : "写入失败，接口可能要调");
+};
+// 把课表整理成文字。App 先算好“本周实际在上的课”（避免让模型自己算周次出错），完整表附后。
+function scheduleText(){
+  const cw = currentWeek();
+  const byDay = d => courses.filter(c=>c.day===d).slice().sort((a,b)=>a.start-b.start);
+  const fmt = c => `${c.name}（第${c.start}${c.end>c.start?"-"+c.end:""}节${c.loc?"，"+c.loc:""}）`;
+  const out = [];
+  if(cw){
+    out.push(`现在是本学期第 ${cw} 周。判断“某天有没有课”只看下面这份【本周实际课程】，不要用完整表自己推算周次。（每过一周会变，我会在课程表 App 里重新同步。）`);
+    out.push("");
+    out.push(`【第${cw}周 · 本周实际课程】`);
+    let any=false;
+    for(let d=1; d<=7; d++){
+      const arr = byDay(d).filter(c=>activeInWeek(c.weeks, cw));
+      if(arr.length){ any=true; out.push(`周${DAYNAMES[d]}：`+arr.map(fmt).join("；")); }
+    }
+    if(!any) out.push("本周没有任何课。");
+    out.push("");
+    out.push("【完整学期课表（含周次，仅供“某门课哪几周上”这类参考，不要用来判断本周）】");
+  } else {
+    out.push("（尚未设置开学第一周，无法自动算“本周实际课程”。下面是完整学期课表；判断本周时请结合每门课的周次范围。设置好“学期第一周”并重新同步会更准。）");
+    out.push("");
+  }
+  for(let d=1; d<=7; d++){
+    const arr = byDay(d);
+    if(arr.length) out.push(`周${DAYNAMES[d]}：`+arr.map(c=>
+      `${c.name}（第${c.start}${c.end>c.start?"-"+c.end:""}节${c.loc?"，"+c.loc:""}${c.weeks?"，"+c.weeks+"周":""}）`
+    ).join("；"));
+  }
+  const tt = tasksText();
+  if(tt){ out.push(""); out.push(tt); }
+  return out.join("\n");
+}
+// 把课程框里手动加的作业/待办整理成文字，让绑定角色也知道
+function tasksText(){
+  const open = taskList.filter(t=>!t.done);
+  if(!open.length) return "";
+  const byCourse = new Map();
+  open.forEach(t=>{
+    const c = courses.find(x=>x.id===t.courseId);
+    const key = c ? c.name : "未归类";
+    if(!byCourse.has(key)) byCourse.set(key, []);
+    byCourse.get(key).push(t.text);
+  });
+  const lines = ["【作业 / 待办（未完成，做完会自动消失）】"];
+  for(const [name, arr] of byCourse){ lines.push(`${name}：${arr.join("；")}`); }
+  return lines.join("\n");
+}
+// 让聊天与课程表互通：把课表推进角色的记忆事件流（聊天每轮 ai.generate 都会读它）
+// silent=自动同步(不弹提示)；withCore=额外钉一条核心记忆(仅手动同步时)
+async function syncToCharacter(charId, charName, opts){
+  opts = opts || {};
+  if(!charId) return false;
+  if(!courses.length){ if(!opts.silent) toast("已绑定。还没有课，导入后再来同步"); return false; }
+  const proto = "【说明】当我随口提到某门课的作业 / 要交的东西 / 要复习补习的内容时，你正常回应我就好，不用刻意复述——课程表App会自己从我们的对话里认出这些任务、记进对应课程。你知道我在用它管作业即可。";
+  const content = "【我的课程表】\n" + scheduleText() + "\n\n" + proto;
+  if(!opts.silent) toast("同步中…");
+  let ok = false;
+  // 事件流：先删旧的同名事件再写新的 → 永远只有最新一条，不堆积
+  try{ await api.memory.removeTimeline({ characterId:charId, appEventId:"timetable" }); }catch(e){}
+  try{
+    await api.memory.addTimeline({ characterId:charId, appLabel:"课程表", appEventId:"timetable",
+      summary:"我的课程表（已更新）", detail:content, createdAt:Date.now() });
+    ok = true;
+  }catch(e){}
+  if(opts.withCore){
+    try{ await api.memory.add({ characterId:charId, type:"core", content, importance:0.9, reason:"课程表同步" }); ok = true; }
+    catch(e){ try{ await api.memory.add({ characterId:charId, type:"long_term", content, importance:0.85, reason:"课程表同步" }); ok = true; }catch(_){} }
+  }
+  if(!opts.silent) toast(ok ? `已让「${charName}」记住你的课表，直接聊就行` : "写入失败，接口可能要调");
+  return ok;
+}
+// 自动同步（防抖）：绑定了角色就在打开/改动课表后静默推最新一版
+let _autoTimer = null;
+function autoSync(){
+  clearTimeout(_autoTimer);
+  _autoTimer = setTimeout(async ()=>{
+    const c = await getCfg();
+    for(const ch of boundChars(c)){ try{ await syncToCharacter(ch.id, ch.name||"", { silent:true }); }catch(e){} }
+  }, 900);
+}
+
+/* ---------- 从角色记忆里把“角色帮我记的作业”拉回 App ---------- */
+// 小手机没有统一的记忆读取接口，这里挨个试常见方法名；都没有就当作不支持
+// 尽力读“你和这个角色最近的对话 / 角色记忆”。小手机没有统一接口，这里挨个试常见的读法；
+// 一个都读不到就返回 null（说明这台小手机不让 App 读对话，没法自动抓）。
+function pickItems(r){
+  if(!r) return null;
+  const items = r.items||r.list||r.data||r.messages||r.history||r.records||r.memories||(Array.isArray(r)?r:null);
+  return (items && items.length) ? items : null;
+}
+async function readRecentTexts(charId){
+  const out = [];
+  const push = (items)=>{ if(!items) return; for(const it of items){
+    const txt = String((it && (typeof it==="string"?it:(it.content||it.detail||it.text||it.summary||it.message||it.body||it.msg)))||"").trim();
+    const ts  = (it && (it.createdAt||it.time||it.ts||it.updatedAt||it.date))||0;
+    const role= String((it && (it.role||it.sender||it.from||it.author||it.speaker))||"");
+    if(txt) out.push({ txt, ts, role });
+  }};
+  const chat = api && api.chat, mem = api && api.memory;
+  // 优先读聊天记录（这里才有你随口说的话）；方法名和入参都试几种
+  const chatCalls = [];
+  if(chat && chat.readHistory){
+    chatCalls.push(()=> chat.readHistory({ characterId:charId, limit:80 }));
+    chatCalls.push(()=> chat.readHistory({ contactId:charId, limit:80 }));
+    chatCalls.push(()=> chat.readHistory({ id:charId, limit:80 }));
+    chatCalls.push(()=> chat.readHistory({ sessionId:charId, limit:80 }));
+    chatCalls.push(()=> chat.readHistory(charId, 80));
+    chatCalls.push(()=> chat.readHistory(charId));
+    chatCalls.push(()=> chat.readHistory({ limit:80 }));
+    chatCalls.push(()=> chat.readHistory());
+  }
+  if(chat && chat.getCurrentSession && chat.readHistory){
+    chatCalls.push(async ()=>{ const s=await chat.getCurrentSession(); const sid=s&&(s.id||s.sessionId||s.conversationId||s.characterId); return sid? chat.readHistory({ sessionId:sid, limit:80 }) : null; });
+  }
+  // 记忆作为兜底
+  const memCalls = [];
+  if(mem){
+    if(mem.readShortTerm){ memCalls.push(()=> mem.readShortTerm({ characterId:charId, limit:80 })); memCalls.push(()=> mem.readShortTerm(charId)); }
+    if(mem.readLongTerm){  memCalls.push(()=> mem.readLongTerm({ characterId:charId, limit:80 }));  memCalls.push(()=> mem.readLongTerm(charId)); }
+    if(mem.readCore){      memCalls.push(()=> mem.readCore({ characterId:charId })); memCalls.push(()=> mem.readCore(charId)); }
+    if(mem.search){        memCalls.push(()=> mem.search({ characterId:charId, query:"作业 任务 补习 复习 要交 提醒", limit:80 })); }
+  }
+  const run = async (calls)=>{ let hit=false; for(const fn of calls){ try{ const items=pickItems(await fn()); if(items){ hit=true; push(items); break; } }catch(e){} } return hit; };
+  let any = await run(chatCalls);
+  if(!any) any = await run(memCalls);
+  return any ? out : null;
+}
+function matchCourse(name){
+  const n=(name||"").trim();
+  return courses.find(x=>x.name===n) || courses.find(x=>x.name.includes(n)||n.includes(x.name)) || null;
+}
+async function pullTasks(silent){
+  const c = await getCfg(); const chars = boundChars(c);
+  if(!chars.length){ if(!silent) toast("先在设置里绑定角色"); return; }
+  if(!courses.length){ if(!silent) toast("还没有课程，先导入课表"); return; }
+  const seen = new Set(c.pulledTasks || []);
+  let readable=false, added=0;
+  for(const ch of chars){
+    const texts = await readRecentTexts(ch.id);
+    if(texts===null) continue;       // 这个角色的对话读不到，跳过
+    readable = true;
+    // 只认“你自己说的话”——角色（assistant）的回复、念叨、等你、闲话一律不抓。
+    // 认不出是你本人说的就宁可不抓（不再回退读全部，免得把角色的话当成你的任务）。
+    const onlyMine = texts.filter(x=>{
+      const r = String(x.role||"").toLowerCase();
+      return /user|\bme\b|self|owner|human|我/.test(r);   // 只保留能确认是“用户本人”的
+    });
+    const src  = onlyMine.map(x=>x.txt).slice(-40);
+    const blob = src.join("\n").slice(-4000);
+    if(!blob.trim()) continue;   // 认不出你自己的话就不抓，避免误记角色闲话
+    let items = [];
+    try{ items = await aiParseTasksText(blob, true); }catch(e){}   // fromChat=严格：只认你明说的作业
+    for(const it of items){
+      const course = it.course ? matchCourse(it.course) : null;
+      if(!course || !it.text) continue;
+      const key = course.id + "｜" + it.text;
+      if(seen.has(key)) continue;
+      seen.add(key);
+      const dup = taskList.some(t=>t.courseId===course.id && t.text===it.text && !t.done);
+      if(!dup){
+        const rec = { courseId:course.id, text:it.text, done:false };
+        try{ const cr = await api.db.create("tasks", rec); rec.id = cr && cr.id; }catch(e){}
+        taskList.push(rec); added++;
+      }
+    }
+  }
+  if(!readable){
+    if(!silent) toast("你的小手机不让 App 读对话/记忆，没法从聊天里自动抓。可以双击课程手动加作业。");
+    return;
+  }
+  await saveCfg({ pulledTasks: Array.from(seen).slice(-300) });   // 记住已处理过的，避免重复
+  render();
+  if(added) toast(`从最近对话里认出 ${added} 条作业，已加入课程`);
+  else if(!silent) toast("最近对话里没发现新的作业");
+}
+
+/* ---------- API config sheet ---------- */
+$("#cCancel").onclick = ()=> $("#mApi").classList.remove("on");
+$("#cSave").onclick = async ()=>{
+  await saveCfg({ base:$("#cBase").value.trim(), key:$("#cKey").value.trim(), model:$("#cModel").value.trim() });
+  $("#mApi").classList.remove("on"); toast("接口已保存");
+};
+$("#cFetch").onclick = async ()=>{
+  const base=$("#cBase").value.trim(), key=$("#cKey").value.trim();
+  if(!base||!key){ $("#cInfo").textContent="先填 Base URL 和 Key，再拉列表"; return; }
+  $("#cInfo").textContent="拉取模型列表中…";
+  try{
+    const ids = await fetchModels({ base, key });
+    const sel = $("#cModelSel"); sel.innerHTML='<option value="">— 从列表选一个 —</option>';
+    ids.forEach(id=>{ const o=document.createElement("option"); o.value=id; o.textContent=id; sel.appendChild(o); });
+    sel.style.display=""; const cur=$("#cModel").value.trim(); if(cur&&ids.includes(cur)) sel.value=cur;
+    $("#cInfo").textContent = "✅ 拉到 "+ids.length+" 个模型，下拉里选（截图识别要选带视觉的）";
+  }catch(e){ $("#cInfo").textContent = "❌ "+(e&&e.message||e)+"（拉不到就手动填模型名）"; }
+};
+$("#cModelSel").onchange = ()=>{ const v=$("#cModelSel").value; if(v) $("#cModel").value=v; };
+$("#cTest").onclick = async ()=>{
+  const cfg = { base:$("#cBase").value.trim(), key:$("#cKey").value.trim(), model:$("#cModel").value.trim() };
+  if(!hasCfg(cfg)){ $("#cInfo").textContent="Base URL、Key、模型名都要填"; return; }
+  $("#cInfo").textContent="测试中…";
+  try{
+    const res = await directLLM(cfg, [{ role:"user", content:"只回复两个字：可以" }]);
+    $("#cInfo").textContent = "✅ 通了，模型回了：" + (res.text||"").slice(0,20);
+  }catch(e){ $("#cInfo").textContent = "❌ " + (e&&e.message||e); }
+};
+
+/* ---------- boot ---------- */
+if(!api){ document.body.innerHTML='<div style="padding:40px;text-align:center;color:#8a8a8f">请在小手机里打开这个 App</div>'; }
+else { getCfg().then(c=>{ weekStart = c.weekStart || null; periodTimes = parsePeriodTimes(c.periodTimes || DEF_TIMES.join("\n")); applyHome(c.home || "week5"); if(c.fontData) applyFont(c.fontData); loadTasks().then(load).then(()=>{ try{ pullTasks(true); }catch(e){} }); autoSync(); }); }
+</script>
+</body>
+</html>

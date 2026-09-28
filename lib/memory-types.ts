@@ -19,13 +19,41 @@ export type MemoryEntry = {
     tags?: string[];            // 关键词标签
     valence?: number;           // 情绪效价 -1(负面) ~ 1(正面)
     arousal?: number;           // 情绪唤醒度/强度 0(平静) ~ 1(激烈)
+    // —— Ombre-Brain 复刻：记忆桶类型与状态标记（全部可选、向后兼容；缺省 = 普通动态记忆）——
+    kind?: MemoryKind;
+    domain?: string[];          // 主题域（饮食 / 恋爱 / 学习 …）
+    pinned?: boolean;           // 核心准则：每次必浮现、不衰减、importance 锁 10（上限 20）
+    protected?: boolean;        // 只防衰减、不主动浮现（上限 20，与 pinned 互斥）
+    resolved?: boolean;         // 已结案：衰减 ×0.05，检索排名 ×0.3
+    digested?: boolean;         // 已被 feel 消化过：不再主动浮现
+    anchored?: boolean;         // 锚点：冷参照，不浮现、不衰减（上限 24）
+    dontSurface?: boolean;      // 不主动浮现（仍可检索）
+    activationCount?: number;   // 被真正激活（强化 / 合并）的次数，新建为 0
+    lastActive?: string;        // 最后一次真实激活时间（衰减以它为起点）
+    whyRemembered?: string;     // 第一人称：为什么值得留下
+    meaning?: string;           // 第一人称：这件事对我意味着什么
+    sourceBucketId?: string;    // feel 桶：由哪条记忆引发
+    planStatus?: "active" | "done" | "dropped";
+    resolutionSuggestion?: { byId: string; confidence: number; reason?: string; at: string };
+    letterLock?: { type: "none" | "timed" | "permanent"; unlockAt?: string };
+    selfAspect?: string;        // I 桶：nature / values / patterns / limits / becoming / uncertainty / stance
+    selfStatus?: "candidate" | "promoted" | "superseded";
+    selfWitnessDates?: string[];// I 候选被 dream 见证过的日期（≥3 个不同日期 → 升格）
+    supersedes?: string;        // I 桶：取代了哪一条旧认识
 };
+
+/** Ombre 记忆桶类型：dynamic 普通 / permanent 固化 / feel 感受 / plan 计划 / letter 信 / i 自我认识 */
+export type MemoryKind = "dynamic" | "permanent" | "feel" | "plan" | "letter" | "i";
 
 export type MemoryConfig = {
     autoSummarizeEnabled: boolean;          // whether auto-summarization runs after N events
     emotionTaggingEnabled?: boolean;        // 记忆情绪打标（valence/arousal/tags/title），折进同一次总结调用、不额外花额度
     autoArchiveEnabled?: boolean;           // 遗忘落地：保持率极低且不重要的长期记忆自动归档（不再主动召回，仍可搜/恢复）
-    archiveRetentionThreshold?: number;     // 触发自动归档的保持率阈值（默认 0.12）
+    archiveRetentionThreshold?: number;     // （旧）保持率阈值，已由 decayArchiveThreshold 取代
+    decayArchiveThreshold?: number;         // Ombre 衰减分低于此值自动归档（默认 0.3）
+    autoResolveEnabled?: boolean;           // Ombre 自动结案：importance≤4 且 30 天未激活 → resolved
+    ombreExtractionEnabled?: boolean;       // Ombre 拆条：每段对话提取 0~5 条独立记忆并与相似旧记忆合并（关掉则回到一段一总结）
+    breathMaxResults?: number;              // 每次浮现的记忆条数上限（不含核心准则，默认 20）
     autoBuildCoreEnabled: boolean;          // whether core memories rebuild after long-term summarization
     vectorRecallEnabled: boolean;           // whether vector embedding recall is used for memory retrieval
     maxLongTermEntries: number;
@@ -116,6 +144,10 @@ export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
     emotionTaggingEnabled: true,
     autoArchiveEnabled: true,
     archiveRetentionThreshold: 0.12,
+    decayArchiveThreshold: 0.3,
+    autoResolveEnabled: true,
+    ombreExtractionEnabled: true,
+    breathMaxResults: 20,
     autoBuildCoreEnabled: true,
     vectorRecallEnabled: true,
     maxLongTermEntries: 500,
