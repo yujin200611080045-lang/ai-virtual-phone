@@ -2,7 +2,10 @@
 // IndexedDB persistence for long-term memory entries + short-term events + localStorage config.
 
 import type { MemoryEntry, MemoryConfig } from "./memory-types";
-import { DEFAULT_MEMORY_CONFIG } from "./memory-types";
+import { DEFAULT_MEMORY_CONFIG, DEFAULT_CORE_MEMORY_PROMPT } from "./memory-types";
+
+// 旧版默认核心记忆提示词（第三人称）。没改过的人自动换成新的第一人称版本；改过的保留。
+const LEGACY_CORE_MEMORY_PROMPT = "你是一个核心记忆整理助手。请根据以下长期记忆记录，为{{char}}整理一段“核心记忆”总结。\n\n角色：{{char}}\n时间跨度：{{earliest}} 至 {{latest}}\n\n长期记忆记录：\n{{events}}\n\n要求：\n- 突出最关键、最稳定、最影响关系判断的事实\n- 确认在一起 / 确认分手 / 复合\n- 订婚 / 结婚 / 离婚\n- 恋爱周年、结婚纪念日、在一起多久\n- 明确的长期关系身份（如恋人、前任、配偶）\n- 共同生活的重要里程碑（如同居、见家长、共同养宠物）\n- 普通日常聊天\n- 一般情绪波动\n- 暂时性的矛盾或暧昧\n- 普通偏好信息\n- 任何不确定、推测性的内容\n- 用第三人称，事实性描述\n- 80-180字\n- 不要使用 JSON、列表符号、标题或格式标记\n\n核心记忆总结：";
 import { kvGet, kvSet, registerKvMigration, registerDynamicPrefix } from "./kv-db";
 import { openIndexedDbAtLeast } from "./idb-open";
 
@@ -180,7 +183,9 @@ export function loadMemoryConfig(): MemoryConfig {
     try {
         const raw = kvGet(CONFIG_KEY);
         if (!raw) return { ...DEFAULT_MEMORY_CONFIG };
-        return { ...DEFAULT_MEMORY_CONFIG, ...JSON.parse(raw) };
+        const merged: MemoryConfig = { ...DEFAULT_MEMORY_CONFIG, ...JSON.parse(raw) };
+        if (merged.coreMemoryPrompt === LEGACY_CORE_MEMORY_PROMPT) merged.coreMemoryPrompt = DEFAULT_CORE_MEMORY_PROMPT;
+        return merged;
     } catch {
         return { ...DEFAULT_MEMORY_CONFIG };
     }

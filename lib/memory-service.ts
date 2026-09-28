@@ -5,6 +5,19 @@ import type { MemoryConfig, MemoryEntry } from "./memory-types";
 import { loadMemoryEntries, loadMemoryEntriesByType } from "./memory-storage";
 import { canSurface, relatedForContext, runOmbreDecayCycle, selectBreathSurface } from "./memory-ombre";
 import { estimateTokens } from "./token-counter";
+import { kvGet, kvSet, registerDynamicPrefix } from "./kv-db";
+
+// Ombre：遗忘扫描每 24 小时跑一次（自动结案 + 沉底归档），不必等下一次总结
+const DECAY_SCAN_PREFIX = "ai_phone_ombre_decay_scan_";
+registerDynamicPrefix(DECAY_SCAN_PREFIX);
+function maybeRunDailyDecay(characterId: string, config: MemoryConfig): void {
+    try {
+        const last = Number(kvGet(DECAY_SCAN_PREFIX + characterId) || 0);
+        if (Date.now() - last < 24 * 3600000) return;
+        kvSet(DECAY_SCAN_PREFIX + characterId, String(Date.now()));
+        void runOmbreDecayCycle(characterId, config).catch(() => undefined);
+    } catch { /* ignore */ }
+}
 
 /**
  * Ombre breath 式浮现：注入 prompt 的长期记忆。
@@ -21,6 +34,7 @@ export async function retrieveMemoriesForPrompt(
     currentContext: string,
     config: MemoryConfig
 ): Promise<MemoryEntry[]> {
+    maybeRunDailyDecay(characterId, config);
     const all = await loadMemoryEntries(characterId);
     const longTerm = all.filter((m) => m.type === "long_term");
     if (longTerm.length === 0) return [];

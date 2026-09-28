@@ -678,7 +678,7 @@ const DIGEST_PROMPT = `你是一个日记整理专家。会收到一段包含各
 ${DOMAIN_LIST}
 importance: 1-10；valence: 0~1（0=消极, 0.5=中性, 1=积极）；arousal: 0~1（0=平静, 1=激动）`;
 
-const EXTRACT_PROMPT = `你是一个对话记忆提取专家。从以下对话/事件片段中提取值得长期记住的信息。
+const EXTRACT_PROMPT_BODY = `你是一个对话记忆提取专家。从以下对话/事件片段中提取值得长期记住的信息。
 
 提取规则：
 1. 提取对方的事实、偏好、习惯、重要事件、情感时刻，以及我们之间的约定、承诺、关系变化
@@ -697,6 +697,19 @@ const EXTRACT_PROMPT = `你是一个对话记忆提取专家。从以下对话/�
 主题域可选（选 1~2 个）：
 ${DOMAIN_LIST}
 importance: 1-10；valence: 0~1（0=消极, 0.5=中性, 1=积极）；arousal: 0~1（0=平静, 1=激动）`;
+
+/** 默认的拆条提取提示词（设置页可编辑）。占位符：{{char}} 记忆的主人、{{user}} 对方、{{max}} 每段最多几条 */
+export const DEFAULT_EXTRACTION_PROMPT = `${EXTRACT_PROMPT_BODY}
+
+【视角铁律】这些是「{{char}}」自己的记忆。一律用{{char}}的第一人称「我」书写；{{user}}用名字或「她/他」称呼。不要写成第三人称旁白，不要替任何人编造原文里没有的事。`;
+
+function fillExtractionPrompt(characterId: string, maxItems: number): string {
+    const custom = loadMemoryConfig().extractionPrompt?.trim();
+    return (custom || DEFAULT_EXTRACTION_PROMPT)
+        .replace(/\{\{max\}\}/g, String(maxItems))
+        .replace(/\{\{char\}\}/gi, charName(characterId))
+        .replace(/\{\{user\}\}/gi, userName(characterId));
+}
 
 type Analysis = { domain?: string[]; valence?: number; arousal?: number; tags?: string[]; title?: string; importance?: number };
 
@@ -1025,7 +1038,7 @@ export async function extractFromEvents(
         meta.onProgress?.(i, chunks.length);
         const maxItems = Math.max(1, Math.min(10, meta.maxPerChunk ?? 5));
         const raw = await llm(
-            EXTRACT_PROMPT.replace("{{max}}", String(maxItems)) + perspectiveRule(characterId),
+            fillExtractionPrompt(characterId, maxItems),
             `时间跨度：${meta.earliest} 至 ${meta.latest}${chunks.length > 1 ? `（第 ${i + 1}/${chunks.length} 段）` : ""}\n记忆的主人：${me}　对方：${her}\n\n片段：\n${chunks[i]}`,
             3000,
         );
