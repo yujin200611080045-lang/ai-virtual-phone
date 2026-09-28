@@ -444,7 +444,6 @@
         <button id="tkAddBtn">添加</button>
       </div>
       <div class="acts" id="tkActs">
-        <button class="btn" id="tkCourseEdit">编辑课程</button>
         <button class="btn primary" id="tkClose">完成</button>
       </div>
     </div>
@@ -722,7 +721,7 @@ function renderTasks(){
   const items = tasksFor(curCourse.id);
   list.innerHTML = "";
   if(!items.length){
-    list.innerHTML = `<div class="tk-empty">${tkEditing?"还没有任务，下面输入框加一条。":"当前没有任务，双击课程来添加。"}</div>`;
+    list.innerHTML = `<div class="tk-empty">${tkEditing?"还没有任务，下面输入框加一条。":"当前没有任务，双击课程来添加；长按课程可以改课程信息。"}</div>`;
     return;
   }
   items.forEach(t=>{
@@ -752,7 +751,6 @@ $("#tkEdit").onclick = ()=>{ tkEditing = !tkEditing; renderTasks(); };
 $("#tkAddBtn").onclick = ()=>{ const v=$("#tkInput").value.trim(); if(!v) return; $("#tkInput").value=""; addTask(v); };
 $("#tkInput").addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); $("#tkAddBtn").click(); } });
 $("#tkClose").onclick = ()=> $("#mTask").classList.remove("on");
-$("#tkCourseEdit").onclick = ()=>{ $("#mTask").classList.remove("on"); openEdit(curCourse); };
 $("#mTask").addEventListener("click", e=>{ if(e.target===$("#mTask")) $("#mTask").classList.remove("on"); });  // 点框外关闭
 
 /* ---------- add / edit ---------- */
