@@ -13,12 +13,13 @@ import {
     memKind,
     releaseAnchor,
     runTreasureDigest,
+    type TreasureChange,
     traceMemory,
     writeLetter,
     writePlan,
 } from "@/lib/memory-ombre";
 
-type Section = "plan" | "letter" | "anchor" | "self" | "feel";
+type Section = "pin" | "plan" | "letter" | "anchor" | "self" | "feel";
 
 type Props = {
     characterId: string;
@@ -47,13 +48,14 @@ function daysUntil(iso?: string): number {
 }
 
 export function MemoryTreasureTab({ characterId, characterName, entries, reload, notice, openEntry }: Props) {
-    const [section, setSection] = useState<Section>("plan");
+    const [section, setSection] = useState<Section>("pin");
     const [showDone, setShowDone] = useState(false);
     const [planDraft, setPlanDraft] = useState<string | null>(null);
     const [letterDraft, setLetterDraft] = useState<{ title: string; content: string; lock: "none" | "timed" | "permanent"; date: string } | null>(null);
     const [reading, setReading] = useState<MemoryEntry | null>(null);
     const [busy, setBusy] = useState(false);
     const [digesting, setDigesting] = useState(false);
+    const [lastDigest, setLastDigest] = useState<TreasureChange[] | null>(null);
 
     const digest = async () => {
         if (digesting) return;
@@ -66,6 +68,7 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
                 r.resolved && `放下 ${r.resolved} 件事`, r.plansDone && `确认完成 ${r.plansDone} 个计划`, r.selves && `多了 ${r.selves} 条自我认识`,
             ].filter(Boolean);
             notice(parts.length ? `${characterName}整理完了：${parts.join("，")}` : `${characterName}看了一遍，这次没有要动的`);
+            setLastDigest(r.items);
             await reload();
         } finally {
             setDigesting(false);
@@ -78,6 +81,7 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
     const donePlans = plans.filter(e => (e.planStatus ?? "active") !== "active").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const letters = live.filter(e => memKind(e) === "letter").sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const anchors = live.filter(e => e.anchored);
+    const pins = live.filter(e => e.pinned || memKind(e) === "permanent");
     const selves = live.filter(e => memKind(e) === "i");
     const feels = live.filter(e => memKind(e) === "feel").sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const byId = new Map(entries.map(e => [e.id, e]));
@@ -89,10 +93,11 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
     };
 
     const sections: Array<{ key: Section; label: string; n: number }> = [
+        { key: "pin", label: "📌 核心准则", n: pins.length },
         { key: "plan", label: "计划", n: activePlans.length },
         { key: "letter", label: "信", n: letters.length },
-        { key: "anchor", label: "锚点", n: anchors.length },
-        { key: "self", label: "自我认识", n: selves.filter(e => e.selfStatus === "promoted").length },
+        { key: "anchor", label: "⚓ 锚点", n: anchors.length },
+        { key: "self", label: "自我认识", n: selves.filter(e => e.selfStatus !== "superseded").length },
         { key: "feel", label: "感受", n: feels.length },
     ];
 
@@ -106,11 +111,55 @@ export function MemoryTreasureTab({ characterId, characterName, entries, reload,
                     <Moon size={12} /> {digesting ? "整理中…" : "让他整理一下"}
                 </button>
             </div>
+            {lastDigest && (
+                <div style={card}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span className="ts-13" style={{ fontWeight: 700 }}>这次整理</span>
+                        <button className="ts-11 text-secondary" style={{ background: "transparent", border: "none" }} onClick={() => setLastDigest(null)}>收起</button>
+                    </div>
+                    {lastDigest.length === 0 && <div className="ts-12 text-secondary" style={{ marginTop: 6 }}>看了一遍，这次没有要动的。</div>}
+                    {lastDigest.map((it, i) => {
+                        const label = { feel: "写下感受", pin: "📌 钉为核心准则", anchor: "⚓ 设为锚点", resolve: "✓ 放下了", plan: "计划完成", self: "自我认识（候选）" }[it.action];
+                        const target: Section | null = it.action === "feel" ? "feel" : it.action === "pin" ? "pin" : it.action === "anchor" ? "anchor" : it.action === "self" ? "self" : it.action === "plan" ? "plan" : null;
+                        return (
+                            <button
+                                key={i}
+                                onClick={() => { if (target) { setSection(target); if (target === "plan") setShowDone(true); } else openEntry(it.id); }}
+                                style={{ display: "flex", width: "100%", gap: 8, textAlign: "left", padding: "7px 0", background: "transparent", border: "none", borderTop: "0.5px solid color-mix(in srgb, var(--c-text, #111) 8%, transparent)", color: "var(--c-text, #111)" }}
+                            >
+                                <span className="ts-11 text-secondary" style={{ whiteSpace: "nowrap", minWidth: 88 }}>{label}</span>
+                                <span className="ts-12" style={{ flex: 1 }}>{it.title}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
             <div style={{ display: "flex", gap: 6, overflowX: "auto", flexShrink: 0, paddingBottom: 2, scrollbarWidth: "none" }}>
                 {sections.map(s => (
                     <button key={s.key} className="ts-12" style={pill(section === s.key)} onClick={() => setSection(s.key)}>{s.label} {s.n}</button>
                 ))}
             </div>
+
+            {/* ── 核心准则 ── */}
+            {section === "pin" && (
+                <>
+                    <div className="ts-12 text-secondary" style={{ flexShrink: 0 }}>
+                        每次聊天都会带上的准则，最多 {OMBRE_LIMITS.maxPinned} 条（已用 {pins.length}）。
+                    </div>
+                    {pins.length === 0 && <div style={card} className="ts-12 text-secondary">还没有核心准则。</div>}
+                    {pins.map(e => (
+                        <div key={e.id} style={card}>
+                            <div className="ts-13" style={{ fontWeight: 600, lineHeight: 1.6 }} onClick={() => openEntry(e.id)}>{e.title ? `${e.title}：` : ""}{e.content}</div>
+                            {e.whyRemembered && <div className="ts-11 text-secondary" style={{ marginTop: 4 }}>{e.whyRemembered}</div>}
+                            {e.pinned && (
+                                <div style={{ marginTop: 8 }}>
+                                    <button className="ts-12" style={btn} onClick={() => void act(() => traceMemory(characterId, e.id, { pinned: false }, "user"), "已取消核心准则")}>取消核心准则</button>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </>
+            )}
 
             {/* ── 计划 ── */}
             {section === "plan" && (

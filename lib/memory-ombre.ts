@@ -1578,7 +1578,8 @@ function personaOf(characterId: string): string {
     } catch { return "（没有填写人设）"; }
 }
 
-export type DigestResult = { feels: number; pins: number; anchors: number; resolved: number; plansDone: number; selves: number; error?: string };
+export type TreasureChange = { action: "feel" | "pin" | "anchor" | "resolve" | "plan" | "self"; id: string; title: string };
+export type DigestResult = { feels: number; pins: number; anchors: number; resolved: number; plansDone: number; selves: number; items: TreasureChange[]; error?: string };
 
 /** 每批新记忆写完后调用：攒够 digestInterval 批就自动消化一次 */
 export async function maybeRunTreasureDigest(characterId: string): Promise<void> {
@@ -1592,7 +1593,8 @@ export async function maybeRunTreasureDigest(characterId: string): Promise<void>
 }
 
 export async function runTreasureDigest(characterId: string): Promise<DigestResult> {
-    const res: DigestResult = { feels: 0, pins: 0, anchors: 0, resolved: 0, plansDone: 0, selves: 0 };
+    const res: DigestResult = { feels: 0, pins: 0, anchors: 0, resolved: 0, plansDone: 0, selves: 0, items: [] };
+    const note = (action: TreasureChange["action"], e: MemoryEntry) => res.items.push({ action, id: e.id, title: e.title || e.content.slice(0, 24) });
     if (!auxApi()) return { ...res, error: "未配置记忆总结 API（请在绑定配置 → 辅助API绑定中设置）" };
     const material = await dreamReport(characterId); // 最近 48 小时 + 准则 + 计划 + 感受 + 提示 + 自我认识候选（顺带算一次做梦见证）
     const template = loadMemoryConfig().digestPrompt?.trim() || DEFAULT_DIGEST_PROMPT;
@@ -1624,8 +1626,9 @@ export async function runTreasureDigest(characterId: string): Promise<DigestResu
         const src = live(f.source_bucket);
         const content = String(f.content || "").trim();
         if (!src || !content || memKind(src) === "feel") continue;
-        await holdMemory(characterId, { content, feel: true, sourceBucket: src.id, valence: f.valence, arousal: f.arousal }, opts);
+        const w = await holdMemory(characterId, { content, feel: true, sourceBucket: src.id, valence: f.valence, arousal: f.arousal }, opts);
         res.feels++;
+        note("feel", w.entry);
     }
     for (const p of (out.pin || []).slice(0, 1)) {
         const e = live(p.bucket_id);
@@ -1633,30 +1636,34 @@ export async function runTreasureDigest(characterId: string): Promise<DigestResu
         try {
             await traceMemory(characterId, e.id, { pinned: true, ...(p.why ? { whyRemembered: e.whyRemembered || String(p.why) } : {}) }, "digest");
             res.pins++;
+            note("pin", e);
         } catch { /* 核心准则满了就算了 */ }
     }
     for (const a of (out.anchor || []).slice(0, 1)) {
         const e = live(a.bucket_id);
         if (!e || e.anchored || memKind(e) === "feel") continue;
-        try { await anchorMemory(characterId, e.id, a.reason ? String(a.reason) : undefined, "digest"); res.anchors++; } catch { /* 满了 */ }
+        try { await anchorMemory(characterId, e.id, a.reason ? String(a.reason) : undefined, "digest"); res.anchors++; note("anchor", e); } catch { /* 满了 */ }
     }
     for (const id of (out.resolve || []).slice(0, 5)) {
         const e = live(String(id));
         if (!e || e.resolved || e.pinned || e.anchored || memKind(e) !== "dynamic") continue;
         await traceMemory(characterId, e.id, { resolved: true }, "digest");
         res.resolved++;
+        note("resolve", e);
     }
     for (const id of (out.plan_done || []).slice(0, 5)) {
         const e = live(String(id));
         if (!e || memKind(e) !== "plan" || (e.planStatus ?? "active") !== "active") continue;
         await traceMemory(characterId, e.id, { status: "done" }, "digest");
         res.plansDone++;
+        note("plan", e);
     }
     for (const x of (out.self || []).slice(0, 1)) {
         const content = String(x.content || "").trim();
         if (!content) continue;
-        await writeSelfCandidate(characterId, { content, aspect: x.aspect }, { origin: "digest" });
+        const selfEntry = await writeSelfCandidate(characterId, { content, aspect: x.aspect }, { origin: "digest" });
         res.selves++;
+        note("self", selfEntry);
     }
     const parts = [
         res.feels && `感受 ${res.feels}`, res.pins && `核心准则 ${res.pins}`, res.anchors && `锚点 ${res.anchors}`,
