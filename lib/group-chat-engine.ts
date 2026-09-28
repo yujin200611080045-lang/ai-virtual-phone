@@ -670,7 +670,7 @@ async function runNativeGroupToolLoop(params: {
             if (loader) {
                 expandedSourceIds = touchNativeExpandedToolSource(expandedSourceIds, loader.sourceKey);
                 expandedChanged = true;
-                const content = formatNativeLoaderToolResult(loader.label);
+                const content = formatNativeLoaderToolResult(loader.label, loader.sourceKey);
                 outcomes.push({
                     nativeCall,
                     result: {
