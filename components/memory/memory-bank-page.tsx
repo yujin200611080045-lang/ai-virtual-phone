@@ -1,6 +1,6 @@
 "use client";
 
-import { Component, useState, useEffect, useCallback, type CSSProperties, type ReactNode } from "react";
+import { Component, useState, useEffect, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
 import { Trash2, Zap, Clock, Users, Archive, Wind, Gem, Network, Waves, AlertCircle, Search, Brain, FileText, MoreHorizontal, Plus, Edit3, X, Check, ChevronRight, Filter, Pin, Anchor, Shield, Flame, CircleCheck, RotateCcw, Moon, type LucideIcon } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/modal";
 import { MemoryBreathTab } from "./memory-breath-tab";
@@ -26,13 +26,14 @@ import {
 } from "@/lib/memory-storage";
 import { hydrateChatStorage } from "@/lib/chat-storage";
 import { loadNativeTimeline, type NativeTimelineEntry } from "@/lib/short-term-assembler";
-import { runSummarizationPipeline } from "@/lib/memory-summarizer";
+import { resplitLegacyMemories, runSummarizationPipeline } from "@/lib/memory-summarizer";
 import { runMemoryDecayArchival } from "@/lib/memory-service";
 import {
     OMBRE_LIMITS,
     anchorMemory,
     imp10,
     isArchivedMemory,
+    isLegacySummary,
     lastActiveOf,
     letterIsReadable,
     logMemoryOp,
@@ -273,6 +274,8 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
     const [activeTab, setActiveTab] = useState<MemoryTab>("breath");
     const [ltFilter, setLtFilter] = useState<LtFilter>("all");
     const [ltSort, setLtSort] = useState<"score" | "created">("score");
+    const [resplit, setResplit] = useState<{ done: number; total: number; label: string } | null>(null);
+    const resplitSignal = useRef({ cancelled: false });
     const [ltSearch, setLtSearch] = useState("");
     const [coreEntries, setCoreEntries] = useState<MemoryEntry[]>([]);
     const [longTermEntries, setLongTermEntries] = useState<MemoryEntry[]>([]);
@@ -694,6 +697,32 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
         }
     };
 
+    const runResplit = async (ids?: string[]) => {
+        if (!selectedCharId || resplit) return;
+        setEntryMenuId(null);
+        resplitSignal.current = { cancelled: false };
+        setResplit({ done: 0, total: ids?.length ?? longTermEntries.filter(isLegacySummary).length, label: "" });
+        try {
+            const r = await resplitLegacyMemories(selectedCharId, {
+                ids,
+                signal: resplitSignal.current,
+                onProgress: (done, total, label) => setResplit({ done, total, label }),
+            });
+            if (r.error) showNotice(r.error);
+            else showNotice(`拆好了 ${r.split} 段：新记忆 ${r.created} 条，合并 ${r.merged} 条${r.fromRaw ? `（${r.fromRaw} 段回到了原始聊天）` : ""}${r.failed ? `，${r.failed} 段失败已放回` : ""}`);
+            await reloadEntries();
+        } finally {
+            setResplit(null);
+        }
+    };
+
+    const fmtSpan = (span: string) => span.split(/\s*~\s*/).map(x => {
+        const d = new Date(x);
+        if (!Number.isFinite(d.getTime())) return x;
+        const p = (n: number) => String(n).padStart(2, "0");
+        return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    }).join(" ~ ");
+
     const openEntry = (id: string) => {
         const target = [...longTermEntries, ...coreEntries].find(e => e.id === id);
         if (!target) return;
@@ -803,6 +832,12 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                                     <Edit3 size={13} />
                                                     <span>编辑</span>
                                                 </button>
+                                                {type === "long_term" && isLegacySummary(entry) && (
+                                                    <button onClick={() => void runResplit([entry.id])}>
+                                                        <Filter size={13} />
+                                                        <span>拆成细节</span>
+                                                    </button>
+                                                )}
                                                 {type === "long_term" && !isArchivedMemory(entry) && (memKind(entry) === "dynamic" || memKind(entry) === "permanent") && (
                                                     <>
                                                         <button onClick={() => void runOmbreAction(entry, { pinned: !entry.pinned }, entry.pinned ? "已取消核心准则" : "已钉为核心准则")}>
@@ -946,7 +981,9 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                                 <div>效价：<b style={strong}>{hasCoord ? (entry.valence as number).toFixed(2) : "—"}</b>　唤醒：<b style={strong}>{typeof entry.arousal === "number" ? (entry.arousal as number).toFixed(2) : "—"}</b>　重要度：<b style={strong}>{imp10(entry)}/10</b></div>
                                                 <div>激活 <b style={strong}>{Number(entry.activationCount ?? 1)}</b> 次　最近激活 {relativeTime(lastActiveOf(entry))}{merged ? `　合并过 ${merged} 次` : ""}</div>
                                                 {(entry.domain && entry.domain.length > 0) && <div>主题域：{entry.domain.join("、")}</div>}
-                                                {events !== undefined && <div>整合事件：{events} 条{span ? `　时间跨度：${span}` : ""}</div>}
+                                                {events !== undefined && <div>整合事件：{events} 条{span ? `　${fmtSpan(span)}` : ""}</div>}
+                                                {Array.isArray(meta.splitInto) && <div>已拆成 {(meta.splitInto as string[]).length} 条细节{meta.splitFromRaw ? "（回到原始聊天重新提取）" : ""}</div>}
+                                                {typeof meta.splitFrom === "string" && <div>从一段旧记忆里拆出来的</div>}
                                                 {(entry.tags && entry.tags.length > 0) && <div>标签：{entry.tags.join("、")}</div>}
                                             </div>
                                         </div>
@@ -1051,6 +1088,28 @@ export function MemoryBankPage({ view, selectedCharId, onSelectChar, onNotice }:
                                 className="ts-12"
                                 style={{ flexShrink: 0, width: "100%", padding: "8px 12px", borderRadius: 10, border: "1px solid var(--c-border, rgba(0,0,0,0.1))", background: "var(--c-input, rgba(0,0,0,0.03))", color: "var(--c-text, #333)", margin: "0 0 8px" }}
                             />
+                            {(() => {
+                                const legacyN = longTermEntries.filter(isLegacySummary).length;
+                                if (!resplit && legacyN === 0) return null;
+                                return (
+                                    <div className="ts-12" style={{ flexShrink: 0, margin: "0 0 8px", padding: "10px 12px", borderRadius: 12, background: "rgba(224,160,32,0.12)", lineHeight: 1.6 }}>
+                                        {resplit ? (
+                                            <>
+                                                <div>正在拆第 {Math.min(resplit.total, resplit.done + 1)} / {resplit.total} 段{resplit.label ? `：${resplit.label}` : ""}…</div>
+                                                <div style={{ height: 5, borderRadius: 999, background: "rgba(0,0,0,0.08)", overflow: "hidden", margin: "6px 0" }}>
+                                                    <div style={{ height: "100%", width: `${Math.round((resplit.done / Math.max(1, resplit.total)) * 100)}%`, background: "#e0a020", transition: "width .3s" }} />
+                                                </div>
+                                                <button className="ts-12" style={{ padding: "3px 10px", borderRadius: 999, border: "1px solid rgba(0,0,0,0.15)", background: "transparent" }} onClick={() => { resplitSignal.current.cancelled = true; }}>拆完这一段就停</button>
+                                            </>
+                                        ) : (
+                                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                                <span style={{ flex: 1 }}>有 {legacyN} 条以前「一段一总结」的成段记忆。拆成细节会回到当时的原始聊天重新提取，原来那段归档保留。</span>
+                                                <button className="ts-12" style={{ flexShrink: 0, padding: "4px 12px", borderRadius: 999, border: "none", background: "#e0a020", color: "#fff", fontWeight: 600 }} onClick={() => void runResplit()}>全部拆开</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })()}
                             <div style={{ display: "flex", gap: 6, overflowX: "auto", flexShrink: 0, padding: "2px 0 6px", margin: "0 0 4px", scrollbarWidth: "none" }}>
                                 {LT_FILTERS.map(f => {
                                     const n = f.key === "core" ? coreEntries.length : longTermEntries.filter(e => matchesLtFilter(e, f.key)).length;
