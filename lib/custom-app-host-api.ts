@@ -45,7 +45,7 @@ import { generateEmbedding } from "./memory-embedding";
 import { loadMemoryConfig, loadMemoryEntriesByType, saveMemoryEntry } from "./memory-storage";
 import { formatCoreMemories, formatLongTermMemories } from "./memory-injector";
 import { retrieveCoreMemoriesForPrompt, retrieveMemoriesForPrompt } from "./memory-service";
-import { isArchivedMemory, memKind, ombreScore } from "./memory-ombre";
+import { isArchivedMemory, memKind, ombreScore, writeLetter } from "./memory-ombre";
 import type { MemoryEntry } from "./memory-types";
 import { prepareShortTermContext } from "./short-term-assembler";
 import {
@@ -2197,6 +2197,16 @@ export async function addCustomAppMemory(app: InstalledCustomApp, record: Record
   const characterId = cleanText(record.characterId, 160);
   const content = cleanText(record.content, 3000);
   if (!characterId || !content) throw new Error("memory.add 需要 characterId 和 content。");
+  // 记忆库的「信」：永久保存、不衰减、出现在珍藏的信里（kind: "letter"，from: "character" 他写的 / "user" 你写的）
+  if (record.kind === "letter" && record.type !== "core") {
+    await writeLetter(characterId, {
+      content,
+      title: cleanText(record.title, 60) || undefined,
+      from: record.from === "user" || record.letterFrom === "user" ? "user" : "character",
+      to: cleanText(record.to, 60) || undefined,
+    }, { origin: "custom_app", metadata: { appId: app.id, appName: app.name, reason: cleanText(record.reason, 300) || undefined } });
+    return true;
+  }
   const now = new Date().toISOString();
   const importance = Math.max(0, Math.min(1, Number(record.importance ?? 0.6) || 0.6));
   await saveMemoryEntry({
@@ -2208,6 +2218,7 @@ export async function addCustomAppMemory(app: InstalledCustomApp, record: Record
     importance,
     createdAt: now,
     updatedAt: now,
+    ...(cleanText(record.title, 60) ? { title: cleanText(record.title, 60) } : {}),
     metadata: {
       origin: "custom_app",
       appId: app.id,
