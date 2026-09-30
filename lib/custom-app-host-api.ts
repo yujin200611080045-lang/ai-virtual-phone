@@ -45,6 +45,7 @@ import { generateEmbedding } from "./memory-embedding";
 import { loadMemoryConfig, loadMemoryEntriesByType, saveMemoryEntry } from "./memory-storage";
 import { formatCoreMemories, formatLongTermMemories } from "./memory-injector";
 import { retrieveCoreMemoriesForPrompt, retrieveMemoriesForPrompt } from "./memory-service";
+import { isArchivedMemory, memKind, ombreScore } from "./memory-ombre";
 import type { MemoryEntry } from "./memory-types";
 import { prepareShortTermContext } from "./short-term-assembler";
 import {
@@ -448,6 +449,7 @@ function hasPermission(app: InstalledCustomApp, permission: CustomAppPermission)
 }
 
 function serializeMemoryEntry(entry: MemoryEntry): Record<string, unknown> {
+  const score = ombreScore(entry);
   return {
     id: entry.id,
     type: entry.type,
@@ -456,6 +458,20 @@ function serializeMemoryEntry(entry: MemoryEntry): Record<string, unknown> {
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
     metadata: entry.metadata ?? {},
+    // Ombre 记忆字段：记忆种类、标题、情绪、状态标记，以及此刻的记忆强度（越高越清晰，999 = 核心准则/受保护永不淡忘）
+    kind: memKind(entry),
+    title: entry.title,
+    tags: entry.tags,
+    valence: entry.valence,
+    arousal: entry.arousal,
+    pinned: entry.pinned === true,
+    anchored: entry.anchored === true,
+    protected: entry.protected === true,
+    resolved: entry.resolved === true,
+    archived: isArchivedMemory(entry),
+    activationCount: entry.activationCount,
+    lastActive: entry.lastActive,
+    strength: Math.round(score * 100) / 100,
   };
 }
 
