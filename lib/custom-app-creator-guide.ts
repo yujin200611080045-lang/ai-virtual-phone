@@ -992,6 +992,7 @@ const CUSTOM_APP_CREATOR_GUIDE_LINES = [
   "三种写法，按\"重要程度\"选：",
   "",
   "**`memory.add`** —— 写长期/核心记忆，**只在确实重要、未来需长期影响角色时用**。不要把每次点击都写成长期记忆。",
+  "可选 `title`（标题）。传 `kind: \"letter\"` 会存成记忆库里的「信」（永久保存、不衰减、出现在珍藏的信里），配 `from: \"character\"`（角色写的）或 `\"user\"`（用户写的）；不支持记忆库的旧版本会忽略这些字段、按普通长期记忆保存，所以 content 要写成单独拿出来也看得懂的句子。",
   "",
   "```js",
   "const userProfile = await AiPhone.user.getProfile({ characterId: selectedCharacterId });",
