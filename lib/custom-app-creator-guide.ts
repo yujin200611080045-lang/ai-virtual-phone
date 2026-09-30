@@ -985,6 +985,8 @@ const CUSTOM_APP_CREATOR_GUIDE_LINES = [
   "",
   "分别需 `memory.readCore` / `memory.readLongTerm` / `memory.readShortTerm` / `memory.search`。",
   "",
+  "每条记忆除了 `id / type / content / importance / createdAt / updatedAt / metadata`，还带记忆库的字段：`kind`（dynamic 普通 / permanent 固化 / feel 感受 / plan 计划 / letter 信 / i 自我认识）、`title`、`tags`、`valence`（-1~1）、`arousal`（0~1）、`pinned`（核心准则）、`anchored`（锚点）、`protected`、`resolved`（已放下）、`archived`（已沉底归档）、`activationCount`、`lastActive`、`strength`（此刻的记忆强度：越高越清晰，低于 0.3 会沉底，999 表示核心准则 / 受保护、不会淡忘）。",
+  "",
   "### 5.20 写入记忆",
   "",
   "三种写法，按\"重要程度\"选：",
