@@ -231,6 +231,21 @@ export function deleteStoryGroup(groupId: string): void {
   storyDb.messages.bulkDelete(msgIds).catch(() => undefined);
 }
 
+/**
+ * 重置角色：删除该角色的单人剧情会话及其消息。
+ * 群像剧情（StoryGroup，多角色共享）一律不动，只清掉以该角色为主的单人剧情线。
+ */
+export function deleteStorySessionsByCharacter(characterId: string): { sessions: number; messages: number } {
+  const targetIds = new Set(_sessionsCache.filter((s) => s.characterId === characterId).map((s) => s.id));
+  if (targetIds.size === 0) return { sessions: 0, messages: 0 };
+  const msgIds = _messagesCache.filter((m) => targetIds.has(m.sessionId)).map((m) => m.id);
+  _sessionsCache = _sessionsCache.filter((s) => !targetIds.has(s.id));
+  _messagesCache = _messagesCache.filter((m) => !targetIds.has(m.sessionId));
+  storyDb.sessions.bulkDelete([...targetIds]).catch(() => undefined);
+  storyDb.messages.bulkDelete(msgIds).catch(() => undefined);
+  return { sessions: targetIds.size, messages: msgIds.length };
+}
+
 export function loadStorySessions(): StorySession[] {
   const normalized = normalizeStorySessions(_sessionsCache);
   if (normalized.changed) _sessionsCache = normalized.items;

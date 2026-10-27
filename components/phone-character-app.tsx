@@ -53,6 +53,8 @@ import {
 import { notifyMascotPageContext } from "@/lib/mascot-events";
 import { kvGet, kvSet } from "@/lib/kv-db";
 import { normalizeTimeZone } from "@/lib/character-time";
+import { resetCharacterTraces, type ResetCharacterReport } from "@/lib/reset-character";
+import { createBackupBlob, downloadBackupBlob } from "@/lib/data-management/backup";
 
 type ViewType = "list" | "detail";
 
@@ -1804,6 +1806,12 @@ function CharArchiveView({
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [urlInput, setUrlInput] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  // 重置角色（清除该角色生成的所有痕迹）流程状态
+  const [showReset, setShowReset] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetBackupBusy, setResetBackupBusy] = useState(false);
+  const [resetReport, setResetReport] = useState<ResetCharacterReport | null>(null);
 
   // Send mascot page context (on mount + field changes)
   useEffect(() => {
@@ -2269,6 +2277,7 @@ function CharArchiveView({
               <>
                 <button className="char-archive-btn" onClick={onExportPng}>EXPORT IMG</button>
                 <button className="char-archive-btn" onClick={onExportJson}>EXPORT JSON</button>
+                <button className="char-archive-btn char-archive-btn-danger" onClick={() => { setResetConfirmText(""); setResetReport(null); setShowReset(true); }}>RESET</button>
                 <button className="char-archive-btn char-archive-btn-danger" onClick={() => setConfirmDelete(true)}>DELETE</button>
               </>
             ) : null
@@ -2309,6 +2318,89 @@ function CharArchiveView({
       ) : undefined}
     >
       {archiveFrame}
+
+      {showReset && (
+        <div className="fixed inset-0 z-[10020] flex items-center justify-center bg-black/45 px-5" role="dialog" aria-modal="true" aria-label="重置角色">
+          <div className="w-full max-w-sm rounded-2xl border border-[var(--c-panel-border)] bg-[var(--c-page-body-bg)] p-5 text-[var(--c-text)] shadow-2xl">
+            {resetReport ? (
+              <>
+                <div className="text-base font-bold">重置完成</div>
+                <p className="mt-2 ts-12 leading-relaxed opacity-75">
+                  已清除「{char.name || "该角色"}」生成的痕迹：聊天 {resetReport.chatSessions} 段、朋友圈 {resetReport.moments} 条（评论 {resetReport.momentComments} 条）、故事 {resetReport.story} 段、漫卷 {resetReport.vn} 段、日记 {resetReport.diary} 篇；记忆、住宅与查手机记录已清空。
+                  {resetReport.errors.length > 0 ? `（有 ${resetReport.errors.length} 项未能清除，可稍后重试）` : ""}
+                </p>
+                <div className="mt-4 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    className="rounded-xl bg-[var(--c-text)] px-4 py-3 font-semibold text-[var(--c-page-body-bg)]"
+                    onClick={() => { setShowReset(false); if (typeof window !== "undefined") window.location.reload(); }}
+                  >
+                    完成并刷新
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-base font-bold">重置角色</div>
+                <p className="mt-2 ts-12 leading-relaxed opacity-75">
+                  将删除「{char.name || "该角色"}」建卡以来生成的<b>全部痕迹</b>：聊天、记忆、朋友圈、故事 / 漫卷、日记、住宅与查手机记录。
+                  <br />角色卡本身、聊天设置、世界书 / 预设 / API，以及其他角色的数据都<b>不会</b>改变；地图冒险与多人（群聊 / 群像）内容为避免误伤其他角色，保留不动。
+                  <br /><b style={{ color: "#e5484d" }}>此操作不可撤销，建议先导出一份备份。</b>
+                </p>
+                <div className="mt-4 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    disabled={resetBackupBusy}
+                    className="rounded-xl border border-[var(--c-panel-border)] px-4 py-3 font-semibold disabled:opacity-50"
+                    onClick={async () => {
+                      setResetBackupBusy(true);
+                      try {
+                        const { blob, manifest } = await createBackupBlob();
+                        await downloadBackupBlob(blob, manifest);
+                      } catch {
+                        /* 备份失败不阻断，用户可自行决定是否继续 */
+                      } finally {
+                        setResetBackupBusy(false);
+                      }
+                    }}
+                  >
+                    {resetBackupBusy ? "正在导出备份…" : "先导出完整备份（推荐）"}
+                  </button>
+                  <label className="ts-12 opacity-75 mt-1">
+                    输入角色名「{char.name || "（无名）"}」以确认：
+                  </label>
+                  <input
+                    value={resetConfirmText}
+                    onChange={(e) => setResetConfirmText(e.target.value)}
+                    className="rounded-xl border border-[var(--c-input-border)] bg-transparent px-3 py-2 text-[var(--c-text)]"
+                    placeholder={char.name || "输入角色名"}
+                  />
+                  <button
+                    type="button"
+                    disabled={resetBusy || resetConfirmText.trim() !== (char.name || "").trim()}
+                    className="rounded-xl px-4 py-3 font-semibold text-white disabled:opacity-40"
+                    style={{ backgroundColor: "#e5484d" }}
+                    onClick={async () => {
+                      setResetBusy(true);
+                      try {
+                        const report = await resetCharacterTraces(char.id);
+                        setResetReport(report);
+                      } finally {
+                        setResetBusy(false);
+                      }
+                    }}
+                  >
+                    {resetBusy ? "正在重置…" : "确认重置"}
+                  </button>
+                  <button type="button" className="rounded-xl px-4 py-3 opacity-75" onClick={() => setShowReset(false)}>
+                    取消
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {showSaveVersionConfirm && (
         <div className="fixed inset-0 z-[10020] flex items-center justify-center bg-black/45 px-5" role="dialog" aria-modal="true" aria-label="保存角色卡">

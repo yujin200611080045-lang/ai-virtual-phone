@@ -172,6 +172,18 @@ export function deleteVnMessage(messageId: string): void {
   vnDb.messages.delete(messageId).catch(() => undefined);
 }
 
+/** 重置角色：删除该角色的漫卷（视觉小说）会话及其消息。 */
+export function deleteVnSessionsByCharacter(characterId: string): { sessions: number; messages: number } {
+  const targetIds = new Set(_sessionsCache.filter((s) => s.characterId === characterId).map((s) => s.id));
+  if (targetIds.size === 0) return { sessions: 0, messages: 0 };
+  const msgIds = _messagesCache.filter((m) => targetIds.has(m.sessionId)).map((m) => m.id);
+  _sessionsCache = _sessionsCache.filter((s) => !targetIds.has(s.id));
+  _messagesCache = _messagesCache.filter((m) => !targetIds.has(m.sessionId));
+  vnDb.sessions.bulkDelete([...targetIds]).catch(() => undefined);
+  vnDb.messages.bulkDelete(msgIds).catch(() => undefined);
+  return { sessions: targetIds.size, messages: msgIds.length };
+}
+
 export function deleteVnMessagesFrom(sessionId: string, messageId: string): void {
   const msg = _messagesCache.find((m) => m.id === messageId);
   if (!msg) return;
