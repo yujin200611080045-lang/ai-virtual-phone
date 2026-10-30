@@ -1,33 +1,46 @@
 // 重置角色：清除某一个角色「建卡以来生成的所有痕迹」，
-// 保留角色卡本身、聊天/世界书/预设/API 等设置与其他角色的数据。
+// 保留角色卡本身、聊天/世界书/预设/API 等设置，以及其他角色自身的数据。
 //
-// 设计原则（与产品约定一致）：
-// - 只清这个角色「单人」产生的内容；凡是与其他角色共享的多人内容一律保留：
-//   · 群聊会话、剧情群组（StoryGroup）、共享朋友圈圈子都不动。
-// - 地图冒险（AiPhoneMapDB）是按「世界」而非角色存储的，一个世界可能有多名角色，
-//   无法干净地只抽走一个角色，故不在此处清除（避免误伤其他角色）。
+// 多人内容（群聊、剧情群组、共享朋友圈圈子）也会把这个角色清理出去：
+// 删除他的成员身份与他本人的发言 / 动态 / 关系；清不干净的历史互动（比如别的
+// 角色回复过他的消息）会作为「无名空壳」残留，这是可接受的。
+// 唯一不动的是地图冒险（AiPhoneMapDB）——它按「世界」而非角色存储，一个世界
+// 可能同场多名角色，无法干净抽离，故保留以免误伤其他角色。
 //
 // 所有删除都走各模块自己的公开接口，避免直接操作 Dexie 造成缓存与库不同步。
 
-import { loadChatContacts, loadChatSessions, deleteChatSession, removeChatContact } from "./chat-storage";
+import {
+  loadChatContacts,
+  loadChatSessions,
+  saveChatSessions,
+  loadChatMessages,
+  deleteChatMessagesByIds,
+  deleteChatSession,
+  removeChatContact,
+} from "./chat-storage";
 import { deleteCharacterMemories } from "./memory-storage";
 import { getAllPosts, deleteMomentPost, loadAllMomentComments, deleteMomentComment } from "./moments-storage";
 import { clearDwellingData } from "./dwelling-storage";
 import { clearPhoneManifest, clearPhoneSnapshot, clearCheckPhoneProjectionEntries } from "./checkphone-storage";
 import { CHECKPHONE_APP_SPECS, type CheckPhoneAppId } from "./checkphone-config";
 import { loadDiaryEntries, deleteDiaryEntry } from "./diary-entry-storage";
-import { deleteStorySessionsByCharacter } from "./story-storage";
+import { deleteStorySessionsByCharacter, loadStoryGroups, updateStoryGroup, deleteStoryGroup } from "./story-storage";
 import { deleteVnSessionsByCharacter } from "./vn-storage";
+import { loadCharacterWorldGroups, saveCharacterWorldGroups } from "./character-world-storage";
 import { kvKeysWithPrefix, kvRemove } from "./kv-db";
 
 export type ResetCharacterReport = {
   characterId: string;
   chatSessions: number;
+  groupChatsLeft: number;
+  groupMessages: number;
   moments: number;
   momentComments: number;
   story: number;
+  storyGroups: number;
   vn: number;
   diary: number;
+  worldGroups: number;
   memoriesCleared: boolean;
   dwellingCleared: boolean;
   checkphoneCleared: boolean;
@@ -66,8 +79,8 @@ function removePerCharacterKv(characterId: string): number {
 }
 
 /**
- * 清除某个角色建卡以来生成的所有痕迹（聊天、记忆、朋友圈、故事、漫卷、日记、
- * 住宅、查手机、相关计数/事件）。角色卡、设置与其他角色数据保持不变。
+ * 清除某个角色建卡以来生成的所有痕迹。角色卡、全局设置与其他角色的「本体」数据
+ * 保持不变；该角色会被清理出所有多人内容（群聊 / 剧情群组 / 共享朋友圈）。
  *
  * 调用方应在调用前自行完成「导出备份 + 用户确认」。
  */
@@ -75,11 +88,15 @@ export async function resetCharacterTraces(characterId: string): Promise<ResetCh
   const report: ResetCharacterReport = {
     characterId,
     chatSessions: 0,
+    groupChatsLeft: 0,
+    groupMessages: 0,
     moments: 0,
     momentComments: 0,
     story: 0,
+    storyGroups: 0,
     vn: 0,
     diary: 0,
+    worldGroups: 0,
     memoriesCleared: false,
     dwellingCleared: false,
     checkphoneCleared: false,
@@ -92,7 +109,7 @@ export async function resetCharacterTraces(characterId: string): Promise<ResetCh
     return report;
   }
 
-  // 1) 私聊：顺着 角色→联系人→会话→消息 删干净；群聊（contactId 为群组）不受影响。
+  // 1) 私聊：顺着 角色→联系人→会话→消息 删干净。
   try {
     const contactIds = new Set(
       loadChatContacts().filter((c) => c.characterId === characterId).map((c) => c.id),
@@ -106,10 +123,56 @@ export async function resetCharacterTraces(characterId: string): Promise<ResetCh
     }
     removeChatContact(characterId);
   } catch (err) {
-    report.errors.push(`聊天: ${String(err)}`);
+    report.errors.push(`私聊: ${String(err)}`);
   }
 
-  // 2) 记忆
+  // 2) 群聊：把该角色移出每个群，删掉他本人的发言；群里只剩他一人则整群删除。
+  //    其他角色回复过他的历史消息保留（作为无名空壳）。
+  try {
+    const sessions = loadChatSessions();
+    const nextSessions: typeof sessions = [];
+    let sessionsChanged = false;
+    for (const session of sessions) {
+      const members = session.participantIds;
+      if (!session.isGroup || !Array.isArray(members) || !members.includes(characterId)) {
+        nextSessions.push(session);
+        continue;
+      }
+      const remaining = members.filter((id) => id !== characterId);
+      // 先删掉该角色在本群发过的消息
+      try {
+        const myMsgIds = loadChatMessages(session.id)
+          .filter((m) => m.senderCharacterId === characterId)
+          .map((m) => m.id);
+        if (myMsgIds.length > 0) {
+          report.groupMessages += deleteChatMessagesByIds(session.id, myMsgIds);
+        }
+      } catch (err) {
+        report.errors.push(`群聊消息: ${String(err)}`);
+      }
+      if (remaining.length === 0) {
+        // 群里只有他 → 整群连消息一起删
+        deleteChatSession(session.id);
+        report.groupChatsLeft += 1;
+        sessionsChanged = true;
+        continue;
+      }
+      // 从成员及各类成员映射里剔除该角色
+      const next = { ...session, participantIds: remaining };
+      if (Array.isArray(next.groupAdminIds)) next.groupAdminIds = next.groupAdminIds.filter((id) => id !== characterId);
+      if (next.groupOwnerId === characterId) next.groupOwnerId = "self";
+      if (next.groupMutes) { const m = { ...next.groupMutes }; delete m[characterId]; next.groupMutes = m; }
+      if (next.groupVideoBackgrounds) { const m = { ...next.groupVideoBackgrounds }; delete m[characterId]; next.groupVideoBackgrounds = m; }
+      nextSessions.push(next);
+      report.groupChatsLeft += 1;
+      sessionsChanged = true;
+    }
+    if (sessionsChanged) saveChatSessions(nextSessions);
+  } catch (err) {
+    report.errors.push(`群聊: ${String(err)}`);
+  }
+
+  // 3) 记忆
   try {
     await deleteCharacterMemories(characterId);
     report.memoriesCleared = true;
@@ -117,7 +180,7 @@ export async function resetCharacterTraces(characterId: string): Promise<ResetCh
     report.errors.push(`记忆: ${String(err)}`);
   }
 
-  // 3) 朋友圈：删除该角色发布的动态，以及该角色发表的评论、被删动态下的评论。
+  // 4) 朋友圈：删除该角色发布的动态，以及该角色发表的评论、被删动态下的评论。
   try {
     const myPostIds = new Set(
       getAllPosts()
@@ -139,21 +202,58 @@ export async function resetCharacterTraces(characterId: string): Promise<ResetCh
     report.errors.push(`朋友圈: ${String(err)}`);
   }
 
-  // 4) 故事（单人剧情线，群像不动）
+  // 5) 共享朋友圈世界：把该角色移出每个圈子，并删除涉及他的关系线。
+  try {
+    const groups = loadCharacterWorldGroups();
+    let changed = false;
+    const next = groups.map((g) => {
+      const inMembers = g.memberIds.includes(characterId);
+      const inRelations = g.relations.some(
+        (r) => r.fromCharacterId === characterId || r.toCharacterId === characterId,
+      );
+      if (!inMembers && !inRelations) return g;
+      changed = true;
+      report.worldGroups += 1;
+      return {
+        ...g,
+        memberIds: g.memberIds.filter((id) => id !== characterId),
+        relations: g.relations.filter(
+          (r) => r.fromCharacterId !== characterId && r.toCharacterId !== characterId,
+        ),
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    if (changed) saveCharacterWorldGroups(next);
+  } catch (err) {
+    report.errors.push(`朋友圈圈子: ${String(err)}`);
+  }
+
+  // 6) 故事：单人剧情线直接删；剧情群组把他移出，空组删除（群组消息无单条作者，残留为空壳）。
   try {
     report.story = deleteStorySessionsByCharacter(characterId).sessions;
+    for (const group of loadStoryGroups()) {
+      if (!group.memberIds.includes(characterId)) continue;
+      const remaining = group.memberIds.filter((id) => id !== characterId);
+      if (remaining.length === 0) {
+        deleteStoryGroup(group.id);
+      } else {
+        // updateStoryGroup 会在 lead 不在成员内时自动改选 lead
+        updateStoryGroup(group.id, { memberIds: remaining });
+      }
+      report.storyGroups += 1;
+    }
   } catch (err) {
     report.errors.push(`故事: ${String(err)}`);
   }
 
-  // 5) 漫卷（视觉小说）
+  // 7) 漫卷（视觉小说，单人）
   try {
     report.vn = deleteVnSessionsByCharacter(characterId).sessions;
   } catch (err) {
     report.errors.push(`漫卷: ${String(err)}`);
   }
 
-  // 6) 日记
+  // 8) 日记
   try {
     for (const entry of loadDiaryEntries().filter((e) => e.characterId === characterId)) {
       deleteDiaryEntry(entry.id);
@@ -163,7 +263,7 @@ export async function resetCharacterTraces(characterId: string): Promise<ResetCh
     report.errors.push(`日记: ${String(err)}`);
   }
 
-  // 7) 住宅
+  // 9) 住宅
   try {
     await clearDwellingData(characterId);
     report.dwellingCleared = true;
@@ -171,7 +271,7 @@ export async function resetCharacterTraces(characterId: string): Promise<ResetCh
     report.errors.push(`住宅: ${String(err)}`);
   }
 
-  // 8) 查手机快照（含各 app 快照、清单与事件投影）
+  // 10) 查手机快照（含各 app 快照、清单与事件投影）
   try {
     await clearPhoneManifest(characterId);
     clearCheckPhoneProjectionEntries(characterId);
@@ -184,7 +284,7 @@ export async function resetCharacterTraces(characterId: string): Promise<ResetCh
     report.errors.push(`查手机: ${String(err)}`);
   }
 
-  // 9) 该角色相关的 kv 计数与事件投影
+  // 11) 该角色相关的 kv 计数与事件投影
   try {
     report.kvKeysRemoved = removePerCharacterKv(characterId);
   } catch (err) {

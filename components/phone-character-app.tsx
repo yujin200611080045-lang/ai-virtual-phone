@@ -2326,7 +2326,7 @@ function CharArchiveView({
               <>
                 <div className="text-base font-bold">重置完成</div>
                 <p className="mt-2 ts-12 leading-relaxed opacity-75">
-                  已清除「{char.name || "该角色"}」生成的痕迹：聊天 {resetReport.chatSessions} 段、朋友圈 {resetReport.moments} 条（评论 {resetReport.momentComments} 条）、故事 {resetReport.story} 段、漫卷 {resetReport.vn} 段、日记 {resetReport.diary} 篇；记忆、住宅与查手机记录已清空。
+                  已清除「{char.name || "该角色"}」生成的痕迹：聊天 {resetReport.chatSessions} 段、朋友圈 {resetReport.moments} 条（评论 {resetReport.momentComments} 条）、故事 {resetReport.story} 段、漫卷 {resetReport.vn} 段、日记 {resetReport.diary} 篇；并从 {resetReport.groupChatsLeft} 个群聊、{resetReport.storyGroups} 个剧情群组、{resetReport.worldGroups} 个朋友圈圈子中移出；记忆、住宅与查手机记录已清空。
                   {resetReport.errors.length > 0 ? `（有 ${resetReport.errors.length} 项未能清除，可稍后重试）` : ""}
                 </p>
                 <div className="mt-4 flex flex-col gap-2">
@@ -2343,8 +2343,8 @@ function CharArchiveView({
               <>
                 <div className="text-base font-bold">重置角色</div>
                 <p className="mt-2 ts-12 leading-relaxed opacity-75">
-                  将删除「{char.name || "该角色"}」建卡以来生成的<b>全部痕迹</b>：聊天、记忆、朋友圈、故事 / 漫卷、日记、住宅与查手机记录。
-                  <br />角色卡本身、聊天设置、世界书 / 预设 / API，以及其他角色的数据都<b>不会</b>改变；地图冒险与多人（群聊 / 群像）内容为避免误伤其他角色，保留不动。
+                  将删除「{char.name || "该角色"}」建卡以来生成的<b>全部痕迹</b>：聊天、记忆、朋友圈、故事 / 漫卷、日记、住宅与查手机记录，并把他移出所有<b>群聊 / 剧情群组 / 共享朋友圈</b>（清不掉的历史互动会留下无名空壳）。
+                  <br />角色卡本身、聊天设置、世界书 / 预设 / API，以及其他角色自身的数据都<b>不会</b>改变。仅<b>地图冒险</b>因按「世界」存储、会牵连同场其他角色而保留不动。
                   <br /><b style={{ color: "#e5484d" }}>此操作不可撤销，建议先导出一份备份。</b>
                 </p>
                 <div className="mt-4 flex flex-col gap-2">
