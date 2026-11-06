@@ -309,6 +309,16 @@ type GenerationRunGuard = {
 
 type AssistantMessageDraft = Omit<ChatMessage, "id" | "createdAt" | "status"> & { status?: ChatMessage["status"] };
 
+/**
+ * 真人节奏：多条气泡之间的停顿，按「下一条消息的字数」自适应——
+ * 短消息停顿短、长消息停顿长（像真人在打字），区间 0.7s–3s。
+ * 替代原来固定 800ms，避免多条一下子“刷”一批弹出来。
+ */
+function humanBubbleDelay(content: string | undefined): number {
+    const len = (content ?? "").replace(/\s+/g, "").length;
+    return Math.min(3000, Math.max(700, 500 + len * 55));
+}
+
 type ManagedGenerationOptions = {
     history: ChatMessage[];
     errorPrefix?: string;
@@ -2454,7 +2464,7 @@ export function ChatRoom({ session, onBack }: ChatRoomProps) {
                     });
                     continue;
                 }
-                if (!isFirst) await abortableDelay(800, guard?.signal);
+                if (!isFirst) await abortableDelay(humanBubbleDelay(part.content), guard?.signal);
                 throwIfGenerationStopped(guard);
                 isFirst = false;
                 const attachHere = !attachedState && canCarryFoldedPanel(part);
@@ -2908,7 +2918,7 @@ export function ChatRoom({ session, onBack }: ChatRoomProps) {
         } else {
             publishVisibleMessage(messageDrafts[0]);
             for (let i = 1; i < messageDrafts.length; i++) {
-                await abortableDelay(800, options?.signal);
+                await abortableDelay(humanBubbleDelay(messageDrafts[i].draft.content), options?.signal);
                 throwIfGenerationStopped(options);
                 publishVisibleMessage(messageDrafts[i]);
             }
