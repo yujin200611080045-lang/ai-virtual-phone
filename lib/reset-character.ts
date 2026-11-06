@@ -10,7 +10,6 @@
 // 所有删除都走各模块自己的公开接口，避免直接操作 Dexie 造成缓存与库不同步。
 
 import {
-  loadChatContacts,
   loadChatSessions,
   saveChatSessions,
   loadChatMessages,
@@ -109,17 +108,15 @@ export async function resetCharacterTraces(characterId: string): Promise<ResetCh
     return report;
   }
 
-  // 1) 私聊：顺着 角色→联系人→会话→消息 删干净。
+  // 1) 私聊：单聊会话的 contactId 直接是角色ID（见各处 createOrGetSession(characterId) 调用），
+  //    据此定位会话并连带清除消息；不要用联系人表的 contact_xxx id 去匹配，那套对不上。
   try {
-    const contactIds = new Set(
-      loadChatContacts().filter((c) => c.characterId === characterId).map((c) => c.id),
+    const soloSessions = loadChatSessions().filter(
+      (s) => !s.isGroup && s.contactId === characterId,
     );
-    if (contactIds.size > 0) {
-      const sessions = loadChatSessions().filter((s) => contactIds.has(s.contactId));
-      for (const session of sessions) {
-        deleteChatSession(session.id); // 连带清除该会话的消息
-        report.chatSessions += 1;
-      }
+    for (const session of soloSessions) {
+      deleteChatSession(session.id); // 连带清除该会话的消息
+      report.chatSessions += 1;
     }
     removeChatContact(characterId);
   } catch (err) {
